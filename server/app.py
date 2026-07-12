@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 
 from server.asr import AudioChunk, transcribe
 from server.metrics import GazeSample
+from server.session import pick_question
 
 app = FastAPI(title="L0 Foundation")
 
@@ -24,6 +25,10 @@ async def ws_endpoint(ws: WebSocket):
             mtype = msg.get("type")
             if mtype == "hello":
                 await ws.send_json({"type": "echo", "text": "hi"})
+            elif mtype == "start":
+                question = pick_question()
+                ws.state.question = question
+                await ws.send_json({"type": "question", "text": question})
             elif mtype == "gaze":
                 gaze_samples.append(GazeSample(t=msg["t"], looking=bool(msg["looking"])))
             else:

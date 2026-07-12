@@ -129,6 +129,7 @@ function headAnglesDeg(matrix) {
 }
 
 function startGazeLoop() {
+  if (gazeTimer) clearInterval(gazeTimer); // 防重入，避免重复 interval
   const video = document.getElementById("selfview");
   sessionT0 = performance.now();
   gazeTimer = setInterval(() => {
@@ -156,3 +157,38 @@ function stopGazeLoop() {
 
 document.getElementById("btn-gaze").onclick = () =>
   initGaze().then(startGazeLoop).catch((e) => log("MediaPipe 失败: " + e));
+
+// ---- Step 5: 会话流程 出题→听→结束（手动结束，不做端点检测）----
+function speak(text) {
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-US";
+    speechSynthesis.speak(u);
+  } catch (e) { log("TTS 不可用: " + e); }
+}
+
+// 收到题目时朗读并显示
+const origOnMessage = ws.onmessage;
+ws.onmessage = (e) => {
+  origOnMessage(e);
+  let msg;
+  try { msg = JSON.parse(e.data); } catch { return; }
+  if (msg.type === "question") {
+    document.getElementById("question").textContent = msg.text;
+    speak(msg.text);
+  }
+};
+
+document.getElementById("btn-start").onclick = () => {
+  document.getElementById("transcript").textContent = "";
+  ws.send(JSON.stringify({ type: "start" }));
+  startRecording();
+  if (faceLandmarker) startGazeLoop();
+  log("会话开始");
+};
+
+document.getElementById("btn-end").onclick = async () => {
+  stopGazeLoop();
+  await stopRecordingAndTranscribe();
+  log("会话结束");
+};
