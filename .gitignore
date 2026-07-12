@@ -1,0 +1,11 @@
+results/
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+models/
+.DS_Store
+*.wav
+*.mp4
+*.webm
