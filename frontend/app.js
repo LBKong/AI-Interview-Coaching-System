@@ -2,7 +2,9 @@ const log = (m) => {
   document.getElementById("log").textContent += m + "\n";
 };
 
-const ws = new WebSocket(`ws://${location.host}/ws`);
+// https 页面必须用 wss(否则浏览器拦截混合内容, 抛异常会中断整个脚本)
+const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+const ws = new WebSocket(`${wsProto}//${location.host}/ws`);
 ws.onopen = () => { document.getElementById("ws-status").textContent = "已连接"; };
 ws.onclose = () => { document.getElementById("ws-status").textContent = "已断开"; };
 ws.onmessage = (e) => { log("收到: " + e.data); };
