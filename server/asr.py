@@ -3,11 +3,15 @@ L1/L2 换流式时只改本文件内部（边收 chunk 边增量转录），调�
 """
 from __future__ import annotations
 
-import io
+import subprocess
 from dataclasses import dataclass
 from typing import Iterable
 
+import numpy as np
+
 from server import config
+
+SAMPLE_RATE = 16000  # whisper 期望 16kHz 单声道
 
 _model = None  # 懒加载，避免测试/导入时下载模型
 
@@ -44,12 +48,27 @@ def _get_model():
     return _model
 
 
+def _decode_to_pcm(audio_bytes: bytes, sample_rate: int = SAMPLE_RATE) -> np.ndarray:
+    """用 ffmpeg 子进程把任意容器(webm/opus 等)解码成 16kHz 单声道 float32 PCM。
+    比 PyAV 从 BytesIO 直读更稳——浏览器 MediaRecorder 的 webm 头部不完整，PyAV 会失败。
+    """
+    proc = subprocess.run(
+        ["ffmpeg", "-nostdin", "-i", "pipe:0",
+         "-f", "f32le", "-ac", "1", "-ar", str(sample_rate), "pipe:1"],
+        input=audio_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+    )
+    return np.frombuffer(proc.stdout, dtype=np.float32)
+
+
 def transcribe(chunks: Iterable[AudioChunk]) -> Transcript:
-    """L0 实现：攒齐所有 chunk → 一次性喂给 faster-whisper → 带词级时间戳的转录。"""
+    """L0 实现：攒齐所有 chunk → ffmpeg 解码 → 一次性喂给 faster-whisper → 带词级时间戳的转录。"""
     audio_bytes = b"".join(c.data for c in chunks)
+    pcm = _decode_to_pcm(audio_bytes)
+    if pcm.size == 0:
+        return Transcript(text="", words=[])
     model = _get_model()
     segments, _info = model.transcribe(
-        io.BytesIO(audio_bytes),
+        pcm,
         word_timestamps=True,
         language="en",
     )
