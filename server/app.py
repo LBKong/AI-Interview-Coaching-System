@@ -1,11 +1,14 @@
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, WebSocket, WebSocketDisconnect
+import json as _json
+
+from fastapi import FastAPI, Form, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+from server import config
 from server.asr import AudioChunk, transcribe
 from server.metrics import GazeSample
-from server.session import pick_question
+from server.session import assert_no_media, build_summary, pick_question, save_summary
 
 app = FastAPI(title="L0 Foundation")
 
@@ -38,17 +41,32 @@ async def ws_endpoint(ws: WebSocket):
 
 
 @app.post("/transcribe")
-async def transcribe_endpoint(audio: UploadFile):
+async def transcribe_endpoint(
+    audio: UploadFile,
+    session_id: str = Form(...),
+    question: str = Form(""),
+    gaze: str = Form("[]"),
+):
     raw = await audio.read()
     if not raw:
-        return {"text": "", "words": [], "error": "收到空音频（前端未录到数据）"}
+        return {"error": "收到空音频（前端未录到数据）"}
     try:
         # L0：整段音频包成单个 chunk 的迭代器（接口已是流式形状）
         result = transcribe(iter([AudioChunk(data=raw, t_start=0.0)]))
     except Exception as e:  # 返回 JSON 而非 500，便于前端显示真实原因
         print(f"[/transcribe] 转录失败: {e}")
-        return {"text": "", "words": [], "error": str(e)}
-    return {"text": result.text, "words": [w.__dict__ for w in result.words]}
+        return {"error": str(e)}
+    del raw  # 音频转完即丢，不落盘
+
+    gaze_samples = [GazeSample(t=g["t"], looking=bool(g["looking"]))
+                    for g in _json.loads(gaze)]
+    summary = build_summary(
+        session_id, question, result, gaze_samples,
+        multimodal=config.MULTIMODAL_ENABLED, rag=config.RAG_ENABLED,
+    )
+    path = save_summary(summary)
+    assert_no_media()  # 落库后立即自检红线
+    return {"summary": summary, "saved_to": path.name}
 
 
 # 静态前端挂在最后，避免盖过 API 路由

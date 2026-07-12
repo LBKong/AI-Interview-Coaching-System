@@ -48,6 +48,10 @@ let recorder = null;
 let audioChunks = [];
 let recMime = "audio/webm";
 
+// 本轮 session 状态（Step 6）
+let sessionId = null;
+let gazeBuffer = [];
+
 function pickMime() {
   const cands = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
   for (const m of cands) {
@@ -83,16 +87,18 @@ async function stopRecordingAndTranscribe() {
   if (!blob.size) { log("❌ 录到 0 字节，检查麦克风是否有信号"); return; }
   const form = new FormData();
   form.append("audio", blob, "answer");
+  form.append("session_id", sessionId || String(Date.now()));
+  form.append("question", document.getElementById("question").textContent || "");
+  form.append("gaze", JSON.stringify(gazeBuffer));
   const resp = await fetch("/transcribe", { method: "POST", body: form });
   const data = await resp.json();
   if (data.error) { log("❌ 后端: " + data.error); return; }
-  document.getElementById("transcript").textContent = data.text || "(无转录)";
-  log("转录完成");
+  document.getElementById("transcript").textContent = data.summary.transcript || "(无转录)";
+  document.getElementById("stats").textContent = JSON.stringify(data.summary, null, 2);
+  log("已汇总落库: " + data.saved_to);
 }
 
-document.getElementById("btn-rec-start").onclick = startRecording;
-document.getElementById("btn-rec-stop").onclick = () =>
-  stopRecordingAndTranscribe().catch((e) => log("转录失败: " + e));
+// 录音/转录由「开始/结束」按钮驱动（见 Step 5）
 
 // ---- Step 4: 浏览器内 MediaPipe 算凝视代理，样本经 WS 发出（为 L2 HUD 预留链路）----
 const GAZE_ON_CAMERA_DEG = 15.0; // 与 server/config.py 保持一致，Step 4 要调
@@ -147,6 +153,7 @@ function startGazeLoop() {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "gaze", t, looking }));
     }
+    gazeBuffer.push({ t, looking }); // 本地缓存，结束时随音频一起上传
   }, 100); // 10 fps 足够
 }
 
@@ -181,6 +188,9 @@ ws.onmessage = (e) => {
 
 document.getElementById("btn-start").onclick = () => {
   document.getElementById("transcript").textContent = "";
+  document.getElementById("stats").textContent = "";
+  sessionId = String(Date.now());
+  gazeBuffer = [];
   ws.send(JSON.stringify({ type: "start" }));
   startRecording();
   if (faceLandmarker) startGazeLoop();
