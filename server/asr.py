@@ -3,7 +3,9 @@ L1/L2 换流式时只改本文件内部（边收 chunk 边增量转录），调�
 """
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -50,13 +52,23 @@ def _get_model():
 
 def _decode_to_pcm(audio_bytes: bytes, sample_rate: int = SAMPLE_RATE) -> np.ndarray:
     """用 ffmpeg 子进程把任意容器(webm/opus 等)解码成 16kHz 单声道 float32 PCM。
-    比 PyAV 从 BytesIO 直读更稳——浏览器 MediaRecorder 的 webm 头部不完整，PyAV 会失败。
+    比 PyAV 从 BytesIO 直读更稳。注意：浏览器 MediaRecorder 的 webm 不可 seek，
+    必须先落到临时文件让 ffmpeg 读文件路径（从 pipe:0 读会因无法 seek 头部而失败）。
+    临时音频文件仅用于解码，函数返回前立即删除——不落库。
     """
-    proc = subprocess.run(
-        ["ffmpeg", "-nostdin", "-i", "pipe:0",
-         "-f", "f32le", "-ac", "1", "-ar", str(sample_rate), "pipe:1"],
-        input=audio_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
-    )
+    tmp = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+    try:
+        tmp.write(audio_bytes)
+        tmp.close()
+        proc = subprocess.run(
+            ["ffmpeg", "-nostdin", "-i", tmp.name,
+             "-f", "f32le", "-ac", "1", "-ar", str(sample_rate), "pipe:1"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"ffmpeg 解码失败: {e.stderr.decode('utf-8', 'ignore')[-500:]}") from e
+    finally:
+        os.unlink(tmp.name)  # 立即删除临时音频，绝不落库
     return np.frombuffer(proc.stdout, dtype=np.float32)
 
 
