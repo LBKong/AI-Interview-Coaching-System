@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>L0 面试地基</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <h1>L0 面试地基</h1>
+
+  <section id="conn">
+    <button id="btn-hello">发 hello 测试链路</button>
+    <button id="btn-media">开启摄像头 + 麦克风</button>
+    <span id="ws-status">未连接</span>
+    <pre id="log"></pre>
+  </section>
+
+  <section id="capture" hidden>
+    <video id="selfview" autoplay muted playsinline></video>
+    <div>麦克风电平：<meter id="mic" min="0" max="1" value="0"></meter></div>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>

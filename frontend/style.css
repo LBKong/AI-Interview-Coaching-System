@@ -1,0 +1,4 @@
+body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+video { width: 320px; border: 1px solid #ccc; border-radius: 8px; transform: scaleX(-1); }
+pre { background: #f4f4f4; padding: .5rem; border-radius: 6px; min-height: 2rem; white-space: pre-wrap; }
+button { padding: .5rem 1rem; margin: .2rem; }
