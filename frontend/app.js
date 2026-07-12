@@ -18,7 +18,7 @@ let mediaStream = null;
 async function initMedia() {
   mediaStream = await navigator.mediaDevices.getUserMedia({
     video: { width: 640, height: 480 },
-    audio: true,
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   });
   document.getElementById("capture").hidden = false;
   document.getElementById("selfview").srcObject = mediaStream;
@@ -166,23 +166,41 @@ document.getElementById("btn-gaze").onclick = () =>
   initGaze().then(startGazeLoop).catch((e) => log("MediaPipe 失败: " + e));
 
 // ---- Step 5: 会话流程 出题→听→结束（手动结束，不做端点检测）----
-function speak(text) {
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "en-US";
-    speechSynthesis.speak(u);
-  } catch (e) { log("TTS 不可用: " + e); }
+// 关键：先念题，念完(TTS onend)再开始录音+凝视，避免题目 TTS 被麦克风录进答案里。
+function beginAnswer() {
+  if (recorder && recorder.state === "recording") return; // 防重入
+  startRecording();
+  if (faceLandmarker) startGazeLoop();
+  log("请开始回答（正在录音+凝视）");
 }
 
-// 收到题目时朗读并显示
+function askAndListen(text) {
+  document.getElementById("question").textContent = text;
+  try {
+    let started = false;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-US";
+    u.onstart = () => { started = true; };  // TTS 真的在念
+    u.onend = beginAnswer;                   // 念完再录音(不论题目多长都准确)
+    u.onerror = beginAnswer;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+    // 兜底：仅当 TTS 根本没开始念(静默失败)时才直接开始，不会打断正常念题
+    setTimeout(() => { if (!started) beginAnswer(); }, 1000);
+  } catch (e) {
+    log("TTS 不可用，直接开始: " + e);
+    beginAnswer();
+  }
+}
+
+// 收到题目时朗读并显示，念完再开始录音
 const origOnMessage = ws.onmessage;
 ws.onmessage = (e) => {
   origOnMessage(e);
   let msg;
   try { msg = JSON.parse(e.data); } catch { return; }
   if (msg.type === "question") {
-    document.getElementById("question").textContent = msg.text;
-    speak(msg.text);
+    askAndListen(msg.text);
   }
 };
 
@@ -192,9 +210,7 @@ document.getElementById("btn-start").onclick = () => {
   sessionId = String(Date.now());
   gazeBuffer = [];
   ws.send(JSON.stringify({ type: "start" }));
-  startRecording();
-  if (faceLandmarker) startGazeLoop();
-  log("会话开始");
+  log("会话开始：正在念题，念完自动开始录音…");
 };
 
 document.getElementById("btn-end").onclick = async () => {
