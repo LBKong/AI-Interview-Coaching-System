@@ -93,3 +93,66 @@ async function stopRecordingAndTranscribe() {
 document.getElementById("btn-rec-start").onclick = startRecording;
 document.getElementById("btn-rec-stop").onclick = () =>
   stopRecordingAndTranscribe().catch((e) => log("转录失败: " + e));
+
+// ---- Step 4: 浏览器内 MediaPipe 算凝视代理，样本经 WS 发出（为 L2 HUD 预留链路）----
+const GAZE_ON_CAMERA_DEG = 15.0; // 与 server/config.py 保持一致，Step 4 要调
+let faceLandmarker = null;
+let gazeTimer = null;
+let sessionT0 = null;
+
+async function initGaze() {
+  const vision = await import(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.20/vision_bundle.mjs"
+  );
+  const { FaceLandmarker, FilesetResolver } = vision;
+  const fileset = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.20/wasm"
+  );
+  faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+    },
+    runningMode: "VIDEO",
+    outputFacialTransformationMatrixes: true,
+    numFaces: 1,
+  });
+  log("MediaPipe 就绪");
+}
+
+// 从 4x4 变换矩阵估计头部 yaw/pitch（度），作为"看镜头"代理
+function headAnglesDeg(matrix) {
+  const m = matrix; // column-major 长度16
+  const yaw = Math.atan2(m[8], m[10]) * 180 / Math.PI;
+  const pitch = Math.atan2(-m[9], Math.sqrt(m[8] ** 2 + m[10] ** 2)) * 180 / Math.PI;
+  return { yaw, pitch };
+}
+
+function startGazeLoop() {
+  const video = document.getElementById("selfview");
+  sessionT0 = performance.now();
+  gazeTimer = setInterval(() => {
+    if (!faceLandmarker || video.readyState < 2) return;
+    const res = faceLandmarker.detectForVideo(video, performance.now());
+    const t = (performance.now() - sessionT0) / 1000;
+    let looking = false;
+    const mats = res.facialTransformationMatrixes;
+    if (mats && mats.length) {
+      const { yaw, pitch } = headAnglesDeg(mats[0].data);
+      looking = Math.abs(yaw) < GAZE_ON_CAMERA_DEG && Math.abs(pitch) < GAZE_ON_CAMERA_DEG;
+      document.getElementById("gaze-live").textContent =
+        `${looking ? "看镜头" : "看别处"} (yaw=${yaw.toFixed(0)}, pitch=${pitch.toFixed(0)})`;
+    }
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "gaze", t, looking }));
+    }
+  }, 100); // 10 fps 足够
+}
+
+function stopGazeLoop() {
+  if (gazeTimer) clearInterval(gazeTimer);
+  gazeTimer = null;
+}
+
+document.getElementById("btn-gaze").onclick = () =>
+  initGaze().then(startGazeLoop).catch((e) => log("MediaPipe 失败: " + e));

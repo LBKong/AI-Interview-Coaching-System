@@ -4,6 +4,7 @@ from fastapi import FastAPI, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from server.asr import AudioChunk, transcribe
+from server.metrics import GazeSample
 
 app = FastAPI(title="L0 Foundation")
 
@@ -13,11 +14,18 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
+    # 本连接内累积凝视样本。L0 汇总实际走 HTTP(见 /transcribe)，
+    # 此 WS 通道为 L2 实时 HUD 预留（设计文档 §5）。
+    gaze_samples: list[GazeSample] = []
+    ws.state.gaze_samples = gaze_samples
     try:
         while True:
             msg = await ws.receive_json()
-            if msg.get("type") == "hello":
+            mtype = msg.get("type")
+            if mtype == "hello":
                 await ws.send_json({"type": "echo", "text": "hi"})
+            elif mtype == "gaze":
+                gaze_samples.append(GazeSample(t=msg["t"], looking=bool(msg["looking"])))
             else:
                 await ws.send_json({"type": "echo", "text": msg.get("text", "")})
     except WebSocketDisconnect:
