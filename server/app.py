@@ -1,7 +1,9 @@
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+
+from server.asr import AudioChunk, transcribe
 
 app = FastAPI(title="L0 Foundation")
 
@@ -20,6 +22,14 @@ async def ws_endpoint(ws: WebSocket):
                 await ws.send_json({"type": "echo", "text": msg.get("text", "")})
     except WebSocketDisconnect:
         return
+
+
+@app.post("/transcribe")
+async def transcribe_endpoint(audio: UploadFile):
+    raw = await audio.read()
+    # L0：整段音频包成单个 chunk 的迭代器（接口已是流式形状）
+    result = transcribe(iter([AudioChunk(data=raw, t_start=0.0)]))
+    return {"text": result.text, "words": [w.__dict__ for w in result.words]}
 
 
 # 静态前端挂在最后，避免盖过 API 路由

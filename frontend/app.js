@@ -42,3 +42,33 @@ async function initMedia() {
 
 document.getElementById("btn-media").onclick = () =>
   initMedia().catch((e) => log("媒体权限失败: " + e));
+
+// ---- Step 3: 录音(内存) → 结束时上传转录 ----
+let recorder = null;
+let audioChunks = [];
+
+function startRecording() {
+  audioChunks = [];
+  recorder = new MediaRecorder(mediaStream, { mimeType: "audio/webm" });
+  recorder.ondataavailable = (e) => { if (e.data.size) audioChunks.push(e.data); };
+  recorder.start();
+  log("开始录音");
+}
+
+async function stopRecordingAndTranscribe() {
+  const done = new Promise((res) => (recorder.onstop = res));
+  recorder.stop();
+  await done;
+  const blob = new Blob(audioChunks, { type: "audio/webm" });
+  audioChunks = []; // 立即丢弃内存音频
+  const form = new FormData();
+  form.append("audio", blob, "answer.webm");
+  const resp = await fetch("/transcribe", { method: "POST", body: form });
+  const data = await resp.json();
+  document.getElementById("transcript").textContent = data.text || "(无转录)";
+  log("转录完成");
+}
+
+document.getElementById("btn-rec-start").onclick = startRecording;
+document.getElementById("btn-rec-stop").onclick = () =>
+  stopRecordingAndTranscribe().catch((e) => log("转录失败: " + e));
