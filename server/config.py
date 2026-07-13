@@ -25,7 +25,7 @@ QUESTIONS = [
     "Tell me about a challenging project you worked on and your role in it.",
     "Describe a time you had a conflict with a teammate and how you handled it.",
     "Why are you interested in this position?",
-    "What is a technical skill you recently learned, and how did you learn it?",
+    "What is a skill you recently learned, and how did you learn it?",
 ]
 
 # ---- 落库目录（只存统计量，绝不存音视频）----
