@@ -9,3 +9,5 @@ models/
 *.wav
 *.mp4
 *.webm
+.env
+.env.*
