@@ -5,8 +5,15 @@ from pathlib import Path
 RAG_ENABLED = False          # L0 恒 False，占位；L1 才接 RAG
 MULTIMODAL_ENABLED = True    # True=统计量含凝视+语速；False=只有转录(纯文本)。对应 RQ2b
 
-# ---- 凝视代理阈值（Step 4 要调，论文方法章节需交代）----
-GAZE_ON_CAMERA_DEG = 15.0    # 头部/视线偏离镜头中心 < 此角度 → 判定"看镜头"
+# ---- 凝视代理阈值（论文方法章节需交代）----
+# 判定："看镜头" ⇔ |yaw| < 阈值 且 |pitch| < 阈值（度）。
+# 校准依据(2026-07-13, 单被试预试)：
+#   看镜头 |yaw| max=1.4°, |pitch| max=3.3°；看别处(水平转头) |yaw| p50≈35°。
+#   两组在 yaw 上有 ~34° 空档；15° 居中，高于 engaged 最大值 ~4.5 倍余量、远低于 averted。
+#   留余量而非取更小值，是为容忍真实回答时的自然头动(手势/思考/抬头回忆)。
+# 注：预试的"看别处"为水平转头，未压 pitch 维度；如需稳健抓"低头看桌面"等垂直移开，
+#     应补一次垂直校准。前端页面「校准阈值」按钮可复现采集。
+GAZE_ON_CAMERA_DEG = 15.0
 
 # ---- ASR（本地 faster-whisper）----
 WHISPER_MODEL = "small.en"   # 英文面试；CPU 上可换 "base.en" 提速
