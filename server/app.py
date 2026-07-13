@@ -40,6 +40,12 @@ async def ws_endpoint(ws: WebSocket):
         return
 
 
+@app.get("/config")
+async def get_config():
+    """前端拉取需要的配置。GAZE_ON_CAMERA_DEG 单一真源在 server/config.py，前端不再硬编码。"""
+    return {"gaze_on_camera_deg": config.GAZE_ON_CAMERA_DEG}
+
+
 @app.post("/transcribe")
 async def transcribe_endpoint(
     audio: UploadFile,

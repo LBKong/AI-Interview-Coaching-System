@@ -103,7 +103,14 @@ async function stopRecordingAndTranscribe() {
 // 录音/转录由「开始/结束」按钮驱动（见 Step 5）
 
 // ---- Step 4: 浏览器内 MediaPipe 算凝视代理，样本经 WS 发出（为 L2 HUD 预留链路）----
-const GAZE_ON_CAMERA_DEG = 15.0; // 与 server/config.py 保持一致，Step 4 要调
+// 阈值单一真源在 server/config.py，页面加载时从 /config 拉取，前端不硬编码。
+let GAZE_ON_CAMERA_DEG = 15.0; // 拉取前的兜底默认
+fetch("/config").then((r) => r.json()).then((c) => {
+  if (typeof c.gaze_on_camera_deg === "number") {
+    GAZE_ON_CAMERA_DEG = c.gaze_on_camera_deg;
+    log("凝视阈值(来自后端): " + GAZE_ON_CAMERA_DEG + "°");
+  }
+}).catch(() => {});
 let faceLandmarker = null;
 let gazeTimer = null;
 let sessionT0 = null;
@@ -166,6 +173,39 @@ function stopGazeLoop() {
 
 document.getElementById("btn-gaze").onclick = () =>
   initGaze().then(startGazeLoop).catch((e) => log("MediaPipe 失败: " + e));
+
+// ---- Step 4 校准：采集两种情况的 yaw/pitch 分布，为阈值提供依据(论文方法章节用)----
+function pct(arr, p) {
+  if (!arr.length) return NaN;
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
+}
+
+function collectCalibration(label, seconds = 5) {
+  if (!faceLandmarker) { log("请先点「开始凝视检测」加载 MediaPipe"); return; }
+  const video = document.getElementById("selfview");
+  const yaws = [], pitches = [];
+  log(`校准[${label}] 开始，请保持 ${seconds} 秒…`);
+  const timer = setInterval(() => {
+    if (video.readyState < 2) return;
+    const res = faceLandmarker.detectForVideo(video, performance.now());
+    const mats = res.facialTransformationMatrixes;
+    if (mats && mats.length) {
+      const { yaw, pitch } = headAnglesDeg(mats[0].data);
+      yaws.push(Math.abs(yaw));
+      pitches.push(Math.abs(pitch));
+    }
+  }, 100);
+  setTimeout(() => {
+    clearInterval(timer);
+    const f = (x) => (isNaN(x) ? "NA" : x.toFixed(1));
+    log(`校准[${label}] n=${yaws.length}  |yaw| p50/p90/max=${f(pct(yaws,50))}/${f(pct(yaws,90))}/${f(Math.max(...yaws))}` +
+        `  |pitch| p50/p90/max=${f(pct(pitches,50))}/${f(pct(pitches,90))}/${f(Math.max(...pitches))}`);
+  }, seconds * 1000);
+}
+
+document.getElementById("btn-calib-look").onclick = () => collectCalibration("看镜头");
+document.getElementById("btn-calib-away").onclick = () => collectCalibration("看别处");
 
 // ---- Step 5: 会话流程 出题→听→结束（手动结束，不做端点检测）----
 // 关键：先念题，念完(TTS onend)再开始录音+凝视，避免题目 TTS 被麦克风录进答案里。
