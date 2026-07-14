@@ -42,6 +42,17 @@ brew install ffmpeg cloudflared
 - **只在 `server/config.py` 改一处**；前端页面加载时经 `GET /config` 拉取，不再硬编码（改阈值无需动前端）。
 - **待调参数**：页面上「校准阈值」的两个按钮（直视镜头 / 看别处）各采集 5 秒，输出 `|yaw|/|pitch|` 的 p50/p90/max，据此定值。论文方法章节需交代取值与调法。
 
+## RAG 检索（L1 Step 1，server/rag.py）
+给一段回答，从知识库检索相关知识片段（还不接 LLM）。受 `config.RAG_ENABLED` 控制——关掉时 `retrieve()` 返回空列表（RQ2a 消融的基础）。
+
+- **知识库**：`server/knowledge/` 下 `questions.json` + `general.json`（中文原文，给 LLM）与 `questions_en.json` + `general_en.json`（英文镜像，仅用于检索）。切块：每条 pitfall/hint/字段单独成块并带 `[Question: ...]` 上下文，约 46 块。
+- **embedding**：本地 `all-MiniLM-L6-v2`（零成本、离线、不占 Gemini 额度），FAISS 内积检索（向量归一化 → 余弦相似度）。
+- **索引产物**：`index.faiss` + `chunks.json` 由知识库生成，已 gitignore；首次 `retrieve()` 或索引缺失时自动 `build_index()` 重建。**改了知识库要手动重建**：删除这两个文件，或调用 `rag.build_index()`。
+- **两处相对开发说明的偏离（有数据支撑）**：
+  1. **英文镜像做索引**：知识库是中文、被试回答是英文，小型 embedding 模型跨语言细粒度判别弱（目标 pitfall 排 #6）。改用英文镜像算向量、中文原文返回给 LLM 后，目标命中 top-1。中英两份须结构对齐（题数、每题 pitfall/hint 条数一致），`_build_chunks()` 有断言防漂移；**改中文库时英文镜像要同步改**。
+  2. **查询只用「回答」**：题目上下文已在每块的 `[Question:]` 前缀里；实测把题目也拼进 query 会引入泛化词干扰，把精确 pitfall 挤出 top-k，而跨题隔离并不因此变差（验证 3 仍 3/3 命中正确题）。若将来知识库变大或题目相近，需重估此策略。
+- **依赖**：`sentence-transformers`、`faiss-cpu`（注意不是 `faiss`）。首次会下载 embedding 模型（~80MB）。
+
 ## 数据安全（伦理承诺）
 - **只存统计量**：`results/session_<id>.json` 里仅有转录文本、凝视占比、平均 WPM、flags 与时间戳。
 - **绝不存音视频**：视频不出浏览器；音频服务器转完即丢，不落盘（ffmpeg 解码用的临时文件在函数返回前立即删除）。每轮落库后 `assert_no_media()` 自动自检 `results/` 目录，发现任何音视频扩展名即抛错。

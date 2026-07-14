@@ -11,3 +11,6 @@ models/
 *.webm
 .env
 .env.*
+# RAG 索引产物：从知识库生成的派生物，首次运行/改库时自动重建，不入库
+server/knowledge/index.faiss
+server/knowledge/chunks.json
