@@ -122,18 +122,26 @@ def _load_index():
     return _index, _chunks
 
 
-def retrieve(question: str, answer: str, k: int = 3) -> list[str]:
-    """在线：检索 top-k 相关知识块，返回中文原文（给 LLM 用）。
+def retrieve(
+    question: str,  # ⚠ 当前不参与检索，仅为接口稳定保留（见 docstring 第一行）
+    answer: str,
+    k: int = 3,
+) -> list[str]:
+    """⚠ question 参数当前【不参与检索】—— 检索只用 answer 算向量，传 question 不会
+    影响任何结果，别被签名误导（三个月后的你也是）。
 
+    保留 question 是为接口稳定：将来知识库变大或题目相近时，可能改回「题目+回答」
+    或加重排，届时无需改调用方。query 只用 answer 的实测依据见模块 docstring 偏离②。
+
+    在线：检索 top-k 相关知识块，返回中文原文（给 LLM 用）。
     ⚠ RAG 消融开关在这里生效 —— 关掉时返回空列表（RQ2a）。
-    注：query 只用 answer（见模块 docstring 偏离②）；question 参数保留是为接口稳定
-        与将来（如更大知识库时改用题+答或重排）的扩展。
     """
     if not config.RAG_ENABLED:
         return []
 
     import numpy as np
 
+    _ = question  # 显式表明：当前有意不使用（见上方警告）
     index, chunks = _load_index()
     # 坑①：查询向量同样归一化；坑②：float32
     qvec = _get_model().encode([answer], normalize_embeddings=True)
