@@ -14,3 +14,6 @@ models/
 # RAG 索引产物：从知识库生成的派生物，首次运行/改库时自动重建，不入库
 server/knowledge/index.faiss
 server/knowledge/chunks.json
+# 旧知识库备份(原型阶段存档)：只留 JSON 原文，派生的索引/块产物不入库
+server/knowledge_backup_ai_generated/index.faiss
+server/knowledge_backup_ai_generated/chunks.json

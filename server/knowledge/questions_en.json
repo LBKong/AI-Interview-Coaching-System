@@ -1,71 +1,129 @@
 [
   {
     "question": "Tell me about a challenging project you worked on and your role in it.",
-    "assesses": "Ability to solve complex problems, execution, and ownership. It assesses what actions you took and what key role you played when facing difficulty and uncertainty, not how grand the project was or how strong the team was overall.",
-    "good_answer": "Use the STAR structure: briefly set up the project background and core challenge (S/T); focus on your personal judgment, decisions, and concrete actions (A); show the final impact with concrete or measurable results (R); and summarize your personal growth. The emphasis is on your individual contribution and your way of thinking through challenges.",
+    "assesses": "Problem-solving under difficulty and personal ownership. The question asks for two things -- the challenge and the candidate's role in it -- so an answer that describes the project without establishing what the candidate personally did has only half-answered it.",
+    "good_answer": "Set out the project and the specific difficulty briefly, then spend most of the answer on the candidate's own decisions and actions in response to that difficulty, and close with the outcome and what it produced. The interviewer should be able to state afterwards what the candidate was responsible for and what they did about the problem.",
     "common_pitfalls": [
-      "Not answering 'your role': the question explicitly asks about your role, but the whole answer only describes what the project did, without saying your position or which part you owned.",
-      "Using 'we' instead of 'I': the whole answer keeps saying 'our team did', so the interviewer cannot tell your individual core value, specific role, and decision-making.",
-      "A flat play-by-play narration: listing events with no real pain point or challenge distilled, lacking tension and depth in the story.",
-      "The challenge is not challenging enough: the difficulty described is too everyday (e.g. 'tight deadline, heavy workload'), failing to show deep professional ability or complex coordination.",
-      "Empty results: no concrete outcomes or data to prove success, only self-evaluation like 'everyone was satisfied, the project went smoothly'."
+      "Never states the candidate's role, even though the question explicitly asks for it",
+      "Describes the work in the first-person plural throughout, so the individual contribution stays invisible",
+      "Narrates the project chronologically without ever identifying what made it difficult",
+      "Presents an ordinary constraint such as a busy period as the challenge, which shows little",
+      "Ends with a self-assessment such as everything went well instead of a stated outcome"
     ],
     "feedback_hints": [
-      "If the answer never states your own role, directly point out it did not answer the role the question asked, and suggest clearly stating what you were responsible for in the project.",
-      "If the answer frequently says 'we' without 'I', note that this blurs your individual contribution, and suggest adding what you specifically owned and what judgments you made at key moments.",
-      "If the challenge was 'solved by working overtime and brute force', guide the candidate to dig into the deeper difficulty (technical problem, resource limits, cross-team coordination bottleneck) and highlight method and judgment rather than brute effort.",
-      "If concrete results are missing, suggest adding measurable outcomes (e.g. how much efficiency improved, how much cost was reduced, how many people were covered, how much earlier than planned it finished)."
-    ]
+      "If the role is never stated, say so first -- this is the part of the question that was missed",
+      "If the answer is dominated by 'we', ask for the specific decisions the candidate made themselves",
+      "If the difficulty amounted to working longer hours, suggest identifying the real obstacle, such as a technical problem or a conflicting requirement",
+      "If the outcome is only a general claim of success, suggest stating what concretely changed as a result"
+    ],
+    "source": "Prospects.ac.uk (competency-based interviews); STAR guidance, UK National Careers Service"
   },
   {
     "question": "Describe a time you had a conflict with a teammate and how you handled it.",
-    "assesses": "Conflict-resolution ability: communication, perspective-taking, and the process of driving toward consensus. It assesses HOW you handle conflict, not how severe the conflict was or how much you can tolerate.",
-    "good_answer": "Use the STAR structure to make clear: what the conflict was, what you did to communicate/coordinate, the outcome, and what you learned. The emphasis is on the interaction process between you and the other person.",
+    "assesses": "Handling interpersonal disagreement at work. The competency being scored is the handling -- what the candidate did to address the disagreement with the other person -- not whether the conflict was resolved in their favour.",
+    "good_answer": "State the disagreement and what was actually at stake, then describe the steps taken to address it directly with the other person, and finish with how it was resolved and what the candidate took from it. Keeping the description of the colleague fair and factual matters: the interviewer is assessing the candidate's conduct, not judging the absent party.",
     "common_pitfalls": [
-      "Avoiding the conflict instead of resolving it: 'I just did the work myself' -- this bypasses the problem rather than handling the conflict.",
-      "Only complaining about the other person without saying what you yourself did.",
-      "No concrete communication details: saying 'we talked it over' without saying what was actually discussed.",
-      "No outcome: not saying how it was ultimately resolved or the state of the team relationship afterward."
+      "Working around the problem, for example taking on the work alone, which avoids the conflict rather than handling it",
+      "Blaming the colleague throughout, which tells the interviewer about the candidate's attitude rather than their skill",
+      "Describing only how frustrating the situation felt, with no account of what was done",
+      "Choosing an example so minor that no real disagreement had to be handled"
     ],
     "feedback_hints": [
-      "If the answer has no action of talking/negotiating with the other person, point out this is avoidance rather than resolution, and suggest adding what you actually said to your teammate.",
-      "If the answer only describes emotions (frustrated, angry), suggest shifting the focus to concrete actions.",
-      "If there is no outcome, suggest adding how the conflict was finally resolved and what you learned."
-    ]
+      "If the candidate solved it by absorbing the work themselves, point out that this bypasses the conflict and ask what conversation they had with the colleague",
+      "If the answer is largely criticism of the other person, suggest refocusing on the candidate's own actions and the steps they initiated",
+      "If feelings dominate the answer, ask for the specific steps taken and the outcome they led to"
+    ],
+    "source": "Prospects.ac.uk (competency-based interviews, conflict at work); Levashina et al. (2014)"
   },
   {
     "question": "Why are you interested in this position?",
-    "assesses": "Job motivation and fit. It assesses how well you actually understand this organization and this role, and whether your personal development direction is a two-way match with the role, in order to judge your stability and self-drive.",
-    "good_answer": "Bind the attractiveness of the organization/role together with your own ability/plans, in both directions: first say what you value about them (business, direction, way of working); then explain why this role can leverage your strengths and fits your development goals; show that you did your homework, not just submitted a resume.",
+    "assesses": "Motivation and how well the candidate has researched the role. The interviewer wants evidence that this application is specific to this role and organisation, and that the candidate has something to offer it.",
+    "good_answer": "Connect something concrete about the role or organisation to the candidate's own experience and goals, showing evidence of research, and make clear what the candidate would bring as well as what they hope to gain.",
     "common_pitfalls": [
-      "Admitting there is no real motivation: e.g. 'I just need a job', 'you happen to be hiring' -- honest but fatal, it tells them you have no particular interest in this role.",
-      "A generic, formulaic answer: saying things that apply anywhere (e.g. 'your company is an industry leader with a big platform'), with no tie to the specific business or role.",
-      "A 'taking' posture: the whole answer is about 'I want to come learn' and 'I want to improve myself', ignoring what value you can bring to them.",
-      "Exposing a negative motivation: treating the reason you left as the reason you applied (e.g. 'my last job was too exhausting'), lacking a proactive pursuit.",
-      "Lack of understanding of the role: equating interest in the organization with interest in the role, without saying why this particular role."
+      "Praise that would apply to any large employer, with nothing specific to this one",
+      "Framing the role purely as a personal learning opportunity, with nothing offered in return",
+      "Reciting facts about the organisation without connecting them to the candidate's own experience",
+      "Focusing on conditions such as pay or location rather than the work itself",
+      "Answering about the field in general rather than this particular position"
     ],
     "feedback_hints": [
-      "If the answer reveals a 'any job will do' attitude, point out this makes them think you lack motivation and stability, and suggest finding at least one point you genuinely identify with (business, direction, values) as an entry point.",
-      "If the answer only expresses admiration for the organization, note it lacks two-way interaction, and suggest adding which of your skills/experience match the core needs of this role.",
-      "If the answer sounds like seeking 'training and learning opportunities', suggest reframing it as a value exchange, highlighting what problems you can help the team solve and growing together while solving them.",
-      "If the answer never mentions the specific responsibilities or business direction of the role, suggest researching their recent developments or the job description and adding 1-2 concrete details that only someone who truly understands would mention."
-    ]
+      "If the reasons would fit any employer, suggest naming something specific about this role or organisation",
+      "If the answer is entirely about what the candidate would gain, suggest adding what they would contribute",
+      "If facts about the organisation are listed without a link, suggest tying each one to the candidate's own experience",
+      "If the answer describes the industry rather than the role, point out that the question asked about this position"
+    ],
+    "source": "Prospects.ac.uk (interview questions); UK National Careers Service (interview advice)"
   },
   {
     "question": "Tell me about a skill you recently learned, and how you learned it.",
-    "assesses": "Learning ability, self-drive, and methodology. It assesses your initiative when facing an unfamiliar area and how you efficiently master a new skill and put it into practice, in order to judge your growth potential.",
-    "good_answer": "Describe the learning process in a structured way: first say why you learned it (motivation/need); then the concrete learning path (how you got started, how you practiced); focus on how you applied the new skill to real things; finally summarize your learning method or takeaways.",
+    "assesses": "Capacity and motivation to learn, and how deliberately the candidate goes about it. The question asks both what was learned and the process, so the method matters as much as the skill.",
+    "good_answer": "Name the skill and why it was worth learning, describe how it was learned including what was difficult and how that was worked through, and show that it has actually been applied to something.",
     "common_pitfalls": [
-      "Only input, no output: only saying 'I read books, took a course', with no hands-on practice or experience using it to solve a real problem.",
-      "Lack of method: the process sounds like a spur-of-the-moment, fragmented exploration, showing no clear learning path or way of tackling unknown problems.",
-      "Staying at the noun level: the skill mentioned is only a concept; once asked about details or difficulties met in practice, the candidate cannot answer.",
-      "Not saying 'how you learned it': the question explicitly asks how you learned it, but the answer only says what was learned, not the learning process."
+      "Names the skill but says nothing about how it was learned, which is half the question",
+      "Claims a broad skill on the basis of a short course, with no evidence of use",
+      "Describes the learning as effortless, so the interviewer learns nothing about how obstacles are handled",
+      "Never applies the skill to anything, leaving it as a claim rather than a demonstrated capability"
     ],
     "feedback_hints": [
-      "If the learning process is not described, point out this did not answer the 'how' the question asked, and suggest adding how you learned it step by step.",
-      "If the answer stays at the 'reading books/watching videos' stage, note it lacks a practice loop, and suggest adding what you did with the skill or what real problem it helped you solve.",
-      "If the narration is disorganized, suggest distilling clear learning steps, e.g. 'learn the basics -> build a small thing -> dig deep when hitting a problem -> summarize and share'.",
-      "If the answer only says 'I learned it' with no detail, suggest giving a concrete example of the hardest part of learning and how you overcame it."
-    ]
+      "If the method is missing, point out that the question asked how it was learned",
+      "If nothing was difficult, ask what was hardest and how it was worked through",
+      "If the skill has not been applied, suggest describing where it was used and what it produced",
+      "If the claim is broad but the evidence is a single course, suggest scoping the claim to what was actually done"
+    ],
+    "source": "Prospects.ac.uk (competency-based interviews); UK National Careers Service (interview advice)"
+  },
+  {
+    "question": "Give an example of a time you led a team.",
+    "assesses": "Leadership in practice: how the candidate set direction, organised other people and handled the problems that arose. Formal authority is not required -- what is scored is the leading behaviour.",
+    "good_answer": "Set out the goal and the team briefly, then concentrate on what the candidate did as the leader -- how work was allocated, how people were kept aligned, how a difficulty or disagreement was handled -- and close with the result and what was learned about leading.",
+    "common_pitfalls": [
+      "Reports the team's achievement without describing any leading behaviour",
+      "States the job title rather than showing what leading actually involved",
+      "Skips the hard part, so the interviewer never sees how the candidate handles people problems",
+      "Claims credit for the whole team's work rather than describing how others were enabled"
+    ],
+    "feedback_hints": [
+      "If the answer describes the outcome but not the leading, ask how work was allocated and how the team was kept on track",
+      "If a title is offered as evidence, suggest replacing it with a specific thing the candidate did as leader",
+      "If nothing went wrong in the story, ask what the hardest moment was and how it was handled",
+      "If the candidate claims the team's output as their own, suggest showing how they enabled others to deliver it"
+    ],
+    "source": "Prospects.ac.uk (competency-based interviews, leading a team)"
+  },
+  {
+    "question": "Tell me about a time you failed or made a mistake, and what you did next.",
+    "assesses": "Accountability and learning from experience. The question has two halves -- the failure and the response -- and the response is what is really being scored.",
+    "good_answer": "Choose a real failure with genuine consequences, state plainly what went wrong and the candidate's part in it, then focus on what was done to address it and what changed in their practice afterwards. An outcome that stayed negative is acceptable provided the response and the learning are clear.",
+    "common_pitfalls": [
+      "Chooses something that is not really a failure, such as working too hard, which avoids the question",
+      "Attributes the failure to other people or circumstances, so no accountability is shown",
+      "Describes the failure at length but says little about what was done afterwards",
+      "States a general lesson such as learning to communicate better without any change in behaviour to show for it"
+    ],
+    "feedback_hints": [
+      "If the example is not a genuine failure, point out that the question asks for a real one and that a candid answer scores better",
+      "If responsibility is placed elsewhere, ask what the candidate's own part in it was",
+      "If the answer stops at the failure, point out that the second half of the question -- what was done next -- is the part being assessed",
+      "If the lesson is abstract, ask what the candidate does differently now as a result"
+    ],
+    "source": "Prospects.ac.uk (interview questions, failure and achievement); Levashina et al. (2014)"
+  },
+  {
+    "question": "Tell me about a time you had to meet a tight deadline or manage competing priorities.",
+    "assesses": "Planning, prioritisation and judgement under pressure. What is scored is the basis on which the candidate decided what came first, and what they did about the rest.",
+    "good_answer": "Describe the competing demands and the constraint, explain how the candidate decided what to prioritise and on what basis, mention what was renegotiated, delegated or dropped, and give the outcome.",
+    "common_pitfalls": [
+      "Resolves everything by working longer hours, which shows effort rather than prioritisation",
+      "Says the work was prioritised without explaining the basis for the decisions",
+      "Ignores the trade-off -- nothing was ever renegotiated, delegated or dropped",
+      "Leaves out whether the deadline was actually met and at what cost"
+    ],
+    "feedback_hints": [
+      "If the solution was extra hours, ask how the candidate decided what mattered most",
+      "If prioritisation is asserted, ask what criteria were used to rank the work",
+      "If no trade-off appears, ask what was renegotiated, delegated or set aside",
+      "If the outcome is missing, point out that the interviewer needs to know whether the deadline was met"
+    ],
+    "source": "Prospects.ac.uk (competency-based interviews, deadlines and workloads)"
   }
 ]

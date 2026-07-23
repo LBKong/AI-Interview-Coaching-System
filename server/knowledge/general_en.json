@@ -1,22 +1,47 @@
 [
   {
+    "topic": "Answering the question that was actually asked",
+    "content": "In a structured or competency-based interview each question targets one specific competency, and the answer is scored against criteria set in advance for that competency. An answer that is fluent and confident but does not address the competency being asked about still scores poorly. Relevance is therefore judged before delivery: the first thing to check in any answer is whether it actually responds to what the question asked.",
+    "source": "Prospects.ac.uk (competency-based interviews); Campion, Palmer & Campion (1997); Levashina et al. (2014)"
+  },
+  {
     "topic": "STAR structure",
-    "content": "The standard structure for behavioral interview answers: Situation (background) -> Task (your task/goal) -> Action (what you specifically did) -> Result (the outcome and what you learned). The core is that the Action part must be detailed and specific to what YOU did, not what the team did. Missing the Result is the most common omission."
+    "content": "A widely recommended structure for behavioural questions: describe the Situation, the Task you were responsible for, the Action you took, and the Result. The Action section should be the longest part of the answer, because it is where the interviewer learns what the candidate actually did. The Result is the part candidates most often leave out, and interviewers frequently have to prompt for it.",
+    "source": "UK National Careers Service (STAR method); university careers-service guidance (Yale, Northwestern, Wisconsin)"
   },
   {
-    "topic": "Answering the actual question comes first",
-    "content": "For any answer, first check whether it actually answers the question that was asked. A fluent, confident, well-structured answer that misses the question is a failed answer. When judging feedback quality, 'did the answer hit the point' always takes priority over 'did it sound nice'. If the answer is off-topic, the first thing feedback should do is point that out."
+    "topic": "Say 'I', not 'we'",
+    "content": "When describing a team effort, the interviewer needs to hear the candidate's own contribution. Answers that stay in the first-person plural describe what the group achieved and leave the candidate's individual role invisible. Standard guidance is to keep the focus on personal actions and decisions and to use 'I' rather than 'we' when describing what was done.",
+    "source": "University careers-service guidance on STAR (Wisconsin, MIT/Dartmouth)"
   },
   {
-    "topic": "Concrete vs generic",
-    "content": "A good answer is concrete and belongs only to this person; a bad answer is generic and could apply to anyone. Test: if you swap the name in this answer for someone else, does it still hold? If it does, it is too generic. Concreteness shows in real details, specific actions, and measurable results."
+    "topic": "Specific beats generic",
+    "content": "A strong answer describes one concrete event with enough detail for the interviewer to follow it, rather than generalising across several occasions. Concrete detail, specific actions and a measurable or clearly stated outcome make an answer credible and hard to fabricate; vague answers that could be given by anyone provide the interviewer with nothing to score.",
+    "source": "University careers-service guidance on STAR; Prospects.ac.uk"
   },
   {
-    "topic": "Action vs feeling",
-    "content": "The interviewer cares about what you did, not how you felt at the time. 'I was frustrated', 'it was stressful', 'I felt a sense of achievement' -- these are feelings, not actions. A good answer puts the focus on specific actions and judgments, with feelings only as brief background."
+    "topic": "Actions rather than feelings",
+    "content": "Behavioural interviewing rests on the premise that past behaviour is the best available indicator of future performance, so the interviewer is listening for what the candidate did and decided. Describing how a situation felt is useful only as brief context; the substance of the answer should be the actions taken and the reasoning behind them.",
+    "source": "Prospects.ac.uk (competency-based interviews); Levashina et al. (2014)"
   },
   {
-    "topic": "Common delivery-level issues",
-    "content": "Too many filler words (um, uh, like, you know) weaken credibility; speaking too fast seems nervous, too slow seems unprepared; an answer that is too long and off-point makes the interviewer lose patience. But note: a short, accurate answer beats a long, generic one -- length itself is not quality."
+    "topic": "Enough detail without rambling",
+    "content": "Guidance on answering behavioural questions asks for enough detail that the interviewer can understand the situation, while warning against rambling or padding the answer with information that is not relevant. Length in itself is not a measure of quality: a short, precise answer that covers the competency can be stronger than a long one that circles the point.",
+    "source": "University careers-service guidance on STAR; Prospects.ac.uk"
+  },
+  {
+    "topic": "Nonverbal delivery matters, but content comes first",
+    "content": "A meta-analysis covering more than seventy years of research found that nonverbal cues have a meaningful influence on how applicants are judged in interviews, and that this influence remains even after the content of the answer is taken into account. Sustained eye contact in particular is associated with interviewers inferring trustworthiness, sincerity and conscientiousness, and vocal characteristics such as speaking rate are related to interview performance. Delivery is therefore worth commenting on, but as a secondary matter after whether the answer addressed the question.",
+    "source": "Martin-Raugh et al. (2023), J. Organizational Behavior, 44, 132-156"
+  },
+  {
+    "topic": "There is no universal correct speaking rate",
+    "content": "Although general guidance often cites a range of roughly 120 to 150 words per minute, there is no universally accepted standard for delivery, and highly effective speakers vary widely: recorded examples range from around 110 words per minute to around 180, and individual speakers change pace substantially within a single speech. A speaking rate should therefore be treated as context-dependent information rather than a target to be hit, and only raised when it is clearly extreme.",
+    "source": "Fourati et al. (2025), arXiv:2507.07930, drawing on Lucas & Stob, The Art of Public Speaking"
+  },
+  {
+    "topic": "Connect delivery signals to what they communicate",
+    "content": "Expert coaches consulted about automated feedback tools stressed that a low-level measurement such as speaking rate or pause count means little on its own, and is hard for a learner to act on unless it is linked to the higher-level quality it signals, such as composure, energy or engagement. They also cautioned that feedback focused narrowly on hitting behavioural targets can push learners towards a uniform, inauthentic style. Any comment on a delivery measure should therefore explain what it appears to communicate, rather than reporting the number alone.",
+    "source": "Fourati et al. (2025), arXiv:2507.07930"
   }
 ]

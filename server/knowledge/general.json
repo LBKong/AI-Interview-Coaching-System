@@ -1,22 +1,47 @@
 [
   {
-    "topic": "STAR 结构",
-    "content": "行为面试题的标准回答结构：Situation（背景）→ Task（你的任务/目标）→ Action（你具体做了什么）→ Result（结果如何、学到什么）。核心是 Action 部分要详细、要具体到'你做了什么'，而不是'团队做了什么'。缺少 Result 是最常见的遗漏。"
+    "topic": "Answering the question that was actually asked",
+    "content": "In a structured or competency-based interview each question targets one specific competency, and the answer is scored against criteria set in advance for that competency. An answer that is fluent and confident but does not address the competency being asked about still scores poorly. Relevance is therefore judged before delivery: the first thing to check in any answer is whether it actually responds to what the question asked.",
+    "source": "Prospects.ac.uk (competency-based interviews); Campion, Palmer & Campion (1997); Levashina et al. (2014)"
   },
   {
-    "topic": "扣题是第一位的",
-    "content": "任何回答，首先要检查它是否真的回答了题目问的那个问题。一个流畅、自信、结构完整但答非所问的回答，是失败的回答。判断反馈质量时，'这个回答有没有答到点'永远优先于'表达得好不好听'。如果回答偏题，反馈的第一件事就是指出这一点。"
+    "topic": "STAR structure",
+    "content": "A widely recommended structure for behavioural questions: describe the Situation, the Task you were responsible for, the Action you took, and the Result. The Action section should be the longest part of the answer, because it is where the interviewer learns what the candidate actually did. The Result is the part candidates most often leave out, and interviewers frequently have to prompt for it.",
+    "source": "UK National Careers Service (STAR method); university careers-service guidance (Yale, Northwestern, Wisconsin)"
   },
   {
-    "topic": "具体 vs 空泛",
-    "content": "好的回答是具体的、只属于这个人的；差的回答是空泛的、可以套在任何人身上。判断标准：把这段回答里的名字换成另一个人，还成立吗？如果成立，说明太空泛。具体体现在：真实的细节、具体的行动、可衡量的结果。"
+    "topic": "Say 'I', not 'we'",
+    "content": "When describing a team effort, the interviewer needs to hear the candidate's own contribution. Answers that stay in the first-person plural describe what the group achieved and leave the candidate's individual role invisible. Standard guidance is to keep the focus on personal actions and decisions and to use 'I' rather than 'we' when describing what was done.",
+    "source": "University careers-service guidance on STAR (Wisconsin, MIT/Dartmouth)"
   },
   {
-    "topic": "行动 vs 感受",
-    "content": "面试官关心的是你做了什么，而不是你当时的感受。'我很沮丧'、'压力很大'、'我觉得很有成就感'——这些是感受，不是行动。好的回答把重心放在具体的行动和判断上，感受只作为简短的背景交代。"
+    "topic": "Specific beats generic",
+    "content": "A strong answer describes one concrete event with enough detail for the interviewer to follow it, rather than generalising across several occasions. Concrete detail, specific actions and a measurable or clearly stated outcome make an answer credible and hard to fabricate; vague answers that could be given by anyone provide the interviewer with nothing to score.",
+    "source": "University careers-service guidance on STAR; Prospects.ac.uk"
   },
   {
-    "topic": "表达层面的常见问题",
-    "content": "填充词过多（um、uh、like、you know）会削弱可信度；语速过快显得紧张、过慢显得没准备；回答过长而不切要点，会让面试官失去耐心。但注意：简短而准确的回答，好过冗长而空泛的回答——长度本身不是质量。"
+    "topic": "Actions rather than feelings",
+    "content": "Behavioural interviewing rests on the premise that past behaviour is the best available indicator of future performance, so the interviewer is listening for what the candidate did and decided. Describing how a situation felt is useful only as brief context; the substance of the answer should be the actions taken and the reasoning behind them.",
+    "source": "Prospects.ac.uk (competency-based interviews); Levashina et al. (2014)"
+  },
+  {
+    "topic": "Enough detail without rambling",
+    "content": "Guidance on answering behavioural questions asks for enough detail that the interviewer can understand the situation, while warning against rambling or padding the answer with information that is not relevant. Length in itself is not a measure of quality: a short, precise answer that covers the competency can be stronger than a long one that circles the point.",
+    "source": "University careers-service guidance on STAR; Prospects.ac.uk"
+  },
+  {
+    "topic": "Nonverbal delivery matters, but content comes first",
+    "content": "A meta-analysis covering more than seventy years of research found that nonverbal cues have a meaningful influence on how applicants are judged in interviews, and that this influence remains even after the content of the answer is taken into account. Sustained eye contact in particular is associated with interviewers inferring trustworthiness, sincerity and conscientiousness, and vocal characteristics such as speaking rate are related to interview performance. Delivery is therefore worth commenting on, but as a secondary matter after whether the answer addressed the question.",
+    "source": "Martin-Raugh et al. (2023), J. Organizational Behavior, 44, 132-156"
+  },
+  {
+    "topic": "There is no universal correct speaking rate",
+    "content": "Although general guidance often cites a range of roughly 120 to 150 words per minute, there is no universally accepted standard for delivery, and highly effective speakers vary widely: recorded examples range from around 110 words per minute to around 180, and individual speakers change pace substantially within a single speech. A speaking rate should therefore be treated as context-dependent information rather than a target to be hit, and only raised when it is clearly extreme.",
+    "source": "Fourati et al. (2025), arXiv:2507.07930, drawing on Lucas & Stob, The Art of Public Speaking"
+  },
+  {
+    "topic": "Connect delivery signals to what they communicate",
+    "content": "Expert coaches consulted about automated feedback tools stressed that a low-level measurement such as speaking rate or pause count means little on its own, and is hard for a learner to act on unless it is linked to the higher-level quality it signals, such as composure, energy or engagement. They also cautioned that feedback focused narrowly on hitting behavioural targets can push learners towards a uniform, inauthentic style. Any comment on a delivery measure should therefore explain what it appears to communicate, rather than reporting the number alone.",
+    "source": "Fourati et al. (2025), arXiv:2507.07930"
   }
 ]

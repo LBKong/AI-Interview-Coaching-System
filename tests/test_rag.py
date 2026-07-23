@@ -6,29 +6,30 @@ from server import config, rag
 
 def test_build_chunks_includes_all_fields():
     chunks = rag._build_chunks()
-    # Q1=11, Q2=9, Q3=11, Q4=10 → 41 题目块；general 5 → 共 46
-    assert len(chunks) == 46
-    # 每块都有 中文展示文本 text + 英文检索文本 embed
+    # 7 题产出 71 题目块 (11+9+11+10+10+10+10) + general 9 → 共 80
+    assert len(chunks) == 80
+    # 每块都有 展示文本 text + 检索文本 embed
     assert all(set(c) == {"text", "embed"} for c in chunks)
     texts = [c["text"] for c in chunks]
     general = [t for t in texts if t.startswith("[General]")]
     q_chunks = [t for t in texts if t.startswith("[Question:")]
-    assert len(general) == 5
-    assert len(q_chunks) == 41
+    assert len(general) == 9
+    assert len(q_chunks) == 71
     # 每题一条 assesses、一条 good answer
-    assert sum("[Assesses]" in t for t in texts) == 4
-    assert sum("[Good answer]" in t for t in texts) == 4
+    assert sum("[Assesses]" in t for t in texts) == 7
+    assert sum("[Good answer]" in t for t in texts) == 7
     assert any("[Common pitfall]" in t for t in texts)
     assert any("[Feedback hint]" in t for t in texts)
     # 每个题目块都自包含题目上下文
     assert all("[Question:" in t for t in q_chunks)
-    # 冲突题的"回避冲突"pitfall：中文 text 是原文，英文 embed 是镜像
+    # Conflict question: the "avoided the conflict rather than handling it" pitfall.
+    # Both sides are English now, so text and embed carry the same marker.
     target = next(
         c for c in chunks
-        if "conflict" in c["text"].lower() and "回避冲突" in c["text"]
+        if "conflict" in c["text"].lower() and "avoids the conflict" in c["text"]
         and "[Common pitfall]" in c["text"]
     )
-    assert "Avoiding the conflict" in target["embed"]  # 英文镜像对齐同一条
+    assert "avoids the conflict" in target["embed"]
 
 
 def test_retrieve_returns_empty_when_rag_disabled(monkeypatch):
@@ -60,7 +61,7 @@ def test_retrieve_filters_invalid_indices(monkeypatch):
 
 @pytest.mark.slow
 def test_retrieve_finds_relevant_chunk(monkeypatch):
-    """真实场景：冲突题 + 回避冲突的回答 → 应命中"回避冲突而非解决"那条。"""
+    """真实场景：冲突题 + 回避冲突的回答 → 应命中"回避/绕过冲突"那条。"""
     monkeypatch.setattr(config, "RAG_ENABLED", True)
     rag.build_index()  # 用当前知识库重建索引
     rag._index = None  # 清缓存，确保读到刚建的索引
@@ -71,4 +72,5 @@ def test_retrieve_finds_relevant_chunk(monkeypatch):
     chunks = rag.retrieve(q, a, k=3)
     assert chunks, "检索结果不应为空"
     joined = "\n".join(chunks)
-    assert "回避冲突" in joined, f"未命中'回避冲突'那条，实际返回:\n{joined}"
+    assert any(m in joined for m in ("avoids the conflict", "bypasses the conflict")), (
+        f"expected the conflict-avoidance chunk, got:\n{joined}")
