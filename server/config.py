@@ -30,3 +30,22 @@ QUESTIONS = [
 
 # ---- 落库目录（只存统计量，绝不存音视频）----
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
+
+# ---- LLM 反馈生成（Gemini，L1 Step 2）----
+# .env 里放 GEMINI_API_KEY（已在 .gitignore；密钥不进仓库）
+import os
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ModuleNotFoundError:
+    pass  # 没装 python-dotenv 时退回读进程环境变量
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+# 型号写死、不用 *-latest 别名：别名会自动升级，破坏评估结果的可复现性。
+# 选 flash 而非 flash-lite：反馈文本是本研究的因变量（专家评审 / LLM 裁判 / 被试问卷
+# 都在评它），生成质量不降档。2.5 系 2026-10 退役、preview 系会无预警变动，均已避开。
+GEMINI_MODEL = "gemini-3.5-flash"
+FEEDBACK_TEMPERATURE = 0.3          # 低温：反馈要稳、可复现（评估要复算）
+FEEDBACK_LANGUAGE = "English"       # 面试与回答都是英文；想看中文反馈改成 "Chinese"
