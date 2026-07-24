@@ -1,0 +1,104 @@
+import pytest
+
+from server import config, feedback
+
+Q = "Describe a time you had a conflict with a teammate and how you handled it."
+A = "One teammate wasn't doing their part. I ended up doing most of the work myself."
+
+
+# ---- build_prompt：两个消融门控一眼可测（纯函数，不联网）----
+
+def test_build_prompt_rag_off_has_no_knowledge_block():
+    # RQ2a：知识空（RAG 关）→ 无「背景参考」段
+    p = feedback.build_prompt(Q, A, [])
+    assert "reference material" not in p.lower()
+
+
+def test_build_prompt_rag_on_embeds_knowledge():
+    chunk = "[Common pitfall] taking on the work alone, which avoids the conflict"
+    p = feedback.build_prompt(Q, A, [chunk])
+    assert chunk in p
+    assert "reference material" in p.lower()
+
+
+def test_build_prompt_multimodal_off_has_no_delivery_block():
+    # RQ2b：gaze/wpm 都 None → 无 delivery 素材
+    p = feedback.build_prompt(Q, A, [], gaze_ratio=None, avg_wpm=None)
+    assert "words per minute" not in p.lower()
+    assert "looking at the camera" not in p.lower()
+
+
+def test_build_prompt_multimodal_on_embeds_nonverbal():
+    p = feedback.build_prompt(Q, A, [], gaze_ratio=0.42, avg_wpm=185.0)
+    assert "185" in p
+    assert "42%" in p
+
+
+def test_build_prompt_skips_zero_wpm():
+    # 坑③：wpm=0（<2 词的返回值）不写语速；凝视仍在
+    p = feedback.build_prompt(Q, A, [], gaze_ratio=0.42, avg_wpm=0.0)
+    assert "words per minute" not in p.lower()
+    assert "42%" in p
+
+
+# ---- 系统指令：五段结构 + 无写死语速阈值 ----
+
+def test_system_instruction_declares_all_five_sections():
+    si = feedback._SYSTEM_INSTRUCTION.format(language="English")  # 顺带验坑④无裸大括号
+    for title in ["Did you answer the question?", "What worked",
+                  "What to improve", "Delivery", "Next time"]:
+        assert title in si
+
+
+def test_system_instruction_has_no_speaking_rate_thresholds():
+    # 坑⑤：提示词里不能有写死的语速阈值。
+    # 注意：报告篇幅约束"150 to 220 words"是词数、不是语速，故不禁 150/220。
+    # 只禁清单点名的坏例阈值(130-160/<110/>170)与语速单位——阈值离不开单位。
+    si = feedback._SYSTEM_INSTRUCTION.lower()
+    for n in ["110", "130", "160", "170", "180"]:
+        assert n not in si, f"疑似写死语速阈值: {n}"
+    assert "words per minute" not in si  # 具体语速数值只在 delivery 块(用户提示)里出现
+    assert "wpm" not in si
+
+
+# ---- generate_feedback：入口穿两个开关（mock 掉网络）----
+
+def test_generate_feedback_empty_transcript_short_circuits(monkeypatch):
+    calls = {"n": 0}
+    monkeypatch.setattr(feedback, "_generate", lambda p: calls.__setitem__("n", calls["n"] + 1))
+    text, mv = feedback.generate_feedback({"question": Q, "transcript": "   "})
+    assert calls["n"] == 0                       # 空转录不调 LLM（省额度）
+    assert "no feedback" in text.lower() or "no answer" in text.lower()
+    assert mv == config.GEMINI_MODEL
+
+
+def test_generate_feedback_returns_model_version(monkeypatch):
+    monkeypatch.setattr(feedback.rag, "retrieve", lambda *a, **k: [])
+    monkeypatch.setattr(feedback, "_generate", lambda p: ("fb text", "gemini-3.5-flash-test123"))
+    text, mv = feedback.generate_feedback({"question": Q, "transcript": A})
+    assert mv == "gemini-3.5-flash-test123"
+
+
+def test_generate_feedback_rag_off_prompt_has_no_knowledge(monkeypatch):
+    # 端到端 mock：RAG 关（retrieve 返回 []）→ 传给 _generate 的 prompt 无知识段
+    captured = {}
+    monkeypatch.setattr(feedback.rag, "retrieve", lambda *a, **k: [])
+
+    def fake_generate(prompt):
+        captured["prompt"] = prompt
+        return ("stub", "gemini-3.5-flash")
+
+    monkeypatch.setattr(feedback, "_generate", fake_generate)
+    feedback.generate_feedback({"question": Q, "transcript": A,
+                                "avg_wpm": 185.0, "gaze_on_camera_ratio": 0.42})
+    assert "reference material" not in captured["prompt"].lower()
+    # 结构不变的旁证：多模态开着时 delivery 素材仍在
+    assert "words per minute" in captured["prompt"].lower()
+
+
+def test_get_client_raises_without_key(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    feedback._client = None  # 清懒加载缓存
+    with pytest.raises(RuntimeError):
+        feedback._get_client()
+    feedback._client = None  # 复原，避免影响其他测试
