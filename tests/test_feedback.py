@@ -69,7 +69,7 @@ def test_generate_feedback_empty_transcript_short_circuits(monkeypatch):
     text, mv = feedback.generate_feedback({"question": Q, "transcript": "   "})
     assert calls["n"] == 0                       # 空转录不调 LLM（省额度）
     assert "no feedback" in text.lower() or "no answer" in text.lower()
-    assert mv == config.GEMINI_MODEL
+    assert mv == ""                              # Task4：没调模型 → 不返回模型版本
 
 
 def test_generate_feedback_returns_model_version(monkeypatch):
@@ -102,3 +102,60 @@ def test_get_client_raises_without_key(monkeypatch):
     with pytest.raises(RuntimeError):
         feedback._get_client()
     feedback._client = None  # 复原，避免影响其他测试
+
+
+# ---- 加固：空/截断响应必须抛异常，别把坏数据当真反馈（Task 1/3/4）----
+
+class _FakeResp:
+    """假 Gemini 响应，用于离线测 _generate 的校验逻辑。"""
+    def __init__(self, text, finish_reason, model_version="gemini-3.5-flash"):
+        self.text = text
+        self.model_version = model_version
+        cand = type("Cand", (), {"finish_reason": finish_reason})()
+        self.candidates = [cand]
+
+
+class _FakeClient:
+    def __init__(self, resp):
+        self.models = type("M", (), {"generate_content": lambda _self, **kw: resp})()
+
+
+def _mock_client(monkeypatch, resp):
+    monkeypatch.setattr(feedback, "_get_client", lambda: _FakeClient(resp))
+
+
+def test_generate_raises_on_empty_response(monkeypatch):
+    from google.genai import types
+    _mock_client(monkeypatch, _FakeResp(text=None, finish_reason=types.FinishReason.STOP))
+    with pytest.raises(RuntimeError):
+        feedback._generate("prompt")
+
+
+def test_generate_raises_on_truncated_response(monkeypatch):
+    from google.genai import types
+    _mock_client(monkeypatch, _FakeResp(text="half a report cut off mid-",
+                                        finish_reason=types.FinishReason.MAX_TOKENS))
+    with pytest.raises(RuntimeError):
+        feedback._generate("prompt")
+
+
+def test_generate_accepts_normal_response(monkeypatch):
+    # 防止新校验过严：正常 STOP + 有文本要能干净返回
+    from google.genai import types
+    _mock_client(monkeypatch, _FakeResp(text="Full feedback report.",
+                                        finish_reason=types.FinishReason.STOP,
+                                        model_version="gemini-3.5-flash"))
+    text, mv = feedback._generate("prompt")
+    assert text == "Full feedback report."
+    assert mv == "gemini-3.5-flash"
+
+
+def test_knowledge_block_separates_chunks():
+    chunks = ["[Question: A]\n[Common pitfall] X", "[Question: B]\n[Good answer] Y"]
+    p = feedback.build_prompt(Q, A, chunks)
+    assert "[Common pitfall] X\n\n- [Question: B]" in p  # 块间空行分隔
+
+
+def test_empty_transcript_returns_no_model_version():
+    text, mv = feedback.generate_feedback({"question": Q, "transcript": ""})
+    assert mv == ""

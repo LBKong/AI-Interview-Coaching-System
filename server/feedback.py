@@ -52,7 +52,9 @@ def _knowledge_block(knowledge: list[str]) -> str:
     """
     if not knowledge:
         return ""
-    joined = "\n".join(f"- {k}" for k in knowledge)
+    # 用空行分隔：每个块自身含换行（如 "[Question: X]\n[Common pitfall] Y"），
+    # 单个 \n 拼接会让下一块的首行没有项目符号、块边界对模型变模糊。
+    joined = "\n\n".join(f"- {k}" for k in knowledge)
     return (
         "\n\nBackground reference material (use it to ground your feedback; "
         "do not quote it verbatim and do not mention that you were given any notes):\n"
@@ -128,8 +130,19 @@ def _generate(prompt: str) -> tuple[str, str]:
         ),
     )
     text = (resp.text or "").strip()
-    # 设计决定⑤：把确切模型版本存下来（论文方法论要追溯）。SDK 字段是 model_version。
-    model_version = getattr(resp, "model_version", None) or config.GEMINI_MODEL
+    finish = resp.candidates[0].finish_reason if resp.candidates else None
+    # 远程无人监督：宁可抛异常（L1 Step 3 能捕获兜底），也不能把空/截断的报告当真反馈返回。
+    # 否则被试会对一份空白或半截报告打分，坏数据混进研究分析而没人察觉。
+    if not text:
+        # 被安全过滤拦截或无候选 → resp.text 为 None
+        raise RuntimeError(f"Gemini 未返回可用文本 (finish_reason={finish})")
+    if finish is not None and finish != types.FinishReason.STOP:
+        # 非 STOP（如 MAX_TOKENS：3.x 思考 token 也占输出预算，可能把可见回答截断）
+        raise RuntimeError(f"Gemini 响应不完整、疑似被截断 (finish_reason={finish})")
+    # 设计决定⑤：存确切模型版本（论文方法论要追溯）。SDK 字段是 model_version。
+    # 回退时标 (unconfirmed)：别把"配置的模型"冒充成"实际服务的模型"——存这个字段就是为了抓这种错配。
+    served = getattr(resp, "model_version", None)
+    model_version = served or f"{config.GEMINI_MODEL} (unconfirmed)"
     return text, model_version
 
 
@@ -143,8 +156,8 @@ def generate_feedback(summary: dict, *, k: int = 3) -> tuple[str, str]:
     question = summary.get("question", "")
     answer = (summary.get("transcript") or "").strip()
     if not answer:  # 空转录：不调 LLM，省额度
-        return ("(No answer was transcribed, so no feedback could be generated.)",
-                config.GEMINI_MODEL)
+        # 这条路径没调过任何模型 → 模型版本返回空串；否则落库后与"真跑过模型"的记录无法区分。
+        return ("(No answer was transcribed, so no feedback could be generated.)", "")
 
     knowledge = rag.retrieve(question, answer, k=k)  # [] 当 RAG 关（RQ2a）
     prompt = build_prompt(
