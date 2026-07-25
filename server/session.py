@@ -26,12 +26,18 @@ def build_summary(
     transcript: Transcript,
     gaze_samples: list[GazeSample],
     *,
+    question_index: int,
     multimodal: bool,
     rag: bool,
 ) -> dict:
-    """汇总一题的统计量。multimodal=False → 只留转录（凝视+语速都关）。"""
+    """汇总一题的统计量。multimodal=False → 只留转录（凝视+语速都关）。
+
+    question_index：本 session 内第几题。研究是"一题一份反馈"，同一 session 多题，
+    靠它区分落库文件（见 save_summary），否则后一题会覆盖前一题。
+    """
     summary = {
         "session_id": session_id,
+        "question_index": question_index,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "question": question,
         "transcript": transcript.text,
@@ -48,7 +54,8 @@ def save_summary(summary: dict, results_dir: Path | None = None) -> Path:
     """把统计量写成 JSON。只存统计量，绝不存音视频。"""
     results_dir = Path(results_dir) if results_dir else config.RESULTS_DIR
     results_dir.mkdir(parents=True, exist_ok=True)
-    path = results_dir / f"session_{summary['session_id']}.json"
+    # 一题一文件：session_id + question_index，避免同 session 后一题覆盖前一题
+    path = results_dir / f"session_{summary['session_id']}_q{summary['question_index']}.json"
     path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
     return path
 

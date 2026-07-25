@@ -32,7 +32,7 @@ def _sample_inputs():
 
 def test_build_summary_multimodal_on_has_gaze_and_wpm():
     transcript, gaze = _sample_inputs()
-    s = build_summary("sess1", "Q?", transcript, gaze, multimodal=True, rag=False)
+    s = build_summary("sess1", "Q?", transcript, gaze, question_index=0, multimodal=True, rag=False)
     assert s["transcript"] == "hello world"
     assert "gaze_on_camera_ratio" in s
     assert "avg_wpm" in s
@@ -41,7 +41,7 @@ def test_build_summary_multimodal_on_has_gaze_and_wpm():
 
 def test_build_summary_multimodal_off_is_text_only():
     transcript, gaze = _sample_inputs()
-    s = build_summary("sess1", "Q?", transcript, gaze, multimodal=False, rag=False)
+    s = build_summary("sess1", "Q?", transcript, gaze, question_index=0, multimodal=False, rag=False)
     assert s["transcript"] == "hello world"
     assert "gaze_on_camera_ratio" not in s   # 语速也是非语言信号，一起关
     assert "avg_wpm" not in s
@@ -50,13 +50,25 @@ def test_build_summary_multimodal_off_is_text_only():
 
 def test_save_summary_writes_json_and_no_media(tmp_path):
     transcript, gaze = _sample_inputs()
-    s = build_summary("sess1", "Q?", transcript, gaze, multimodal=True, rag=False)
+    s = build_summary("sess1", "Q?", transcript, gaze, question_index=0, multimodal=True, rag=False)
     path = save_summary(s, results_dir=tmp_path)
     assert path.exists()
     loaded = json.loads(path.read_text())
     assert loaded["session_id"] == "sess1"
     # 落库目录里绝不能有任何音视频文件
     assert_no_media(tmp_path)  # 不抛异常即通过
+
+
+def test_save_summary_one_file_per_question(tmp_path):
+    # Task 1：同 session、不同 question_index → 两个文件（后一题不再覆盖前一题）
+    transcript, gaze = _sample_inputs()
+    s0 = build_summary("sessX", "Q?", transcript, gaze, question_index=0, multimodal=True, rag=False)
+    s1 = build_summary("sessX", "Q?", transcript, gaze, question_index=1, multimodal=True, rag=False)
+    p0 = save_summary(s0, results_dir=tmp_path)
+    p1 = save_summary(s1, results_dir=tmp_path)
+    assert p0 != p1
+    assert p0.exists() and p1.exists()
+    assert len(list(tmp_path.glob("session_sessX_q*.json"))) == 2
 
 
 def test_assert_no_media_raises_when_media_present(tmp_path):

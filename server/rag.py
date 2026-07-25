@@ -126,6 +126,8 @@ def retrieve(
     question: str,  # ⚠ 当前不参与检索，仅为接口稳定保留（见 docstring 第一行）
     answer: str,
     k: int = 3,
+    *,
+    enabled: bool | None = None,
 ) -> list[str]:
     """⚠ question 参数当前【不参与检索】—— 检索只用 answer 算向量，传 question 不会
     影响任何结果，别被签名误导（三个月后的你也是）。
@@ -135,8 +137,11 @@ def retrieve(
 
     在线：检索 top-k 相关知识块，返回中文原文（给 LLM 用）。
     ⚠ RAG 消融开关在这里生效 —— 关掉时返回空列表（RQ2a）。
+    enabled：per-question 覆盖（within-subjects 消融要靠它，同 session 各题可不同）。
+             None → 回退全局 config.RAG_ENABLED；True/False → 显式指定本次。
     """
-    if not config.RAG_ENABLED:
+    use_rag = config.RAG_ENABLED if enabled is None else enabled
+    if not use_rag:
         return []
 
     import numpy as np

@@ -159,3 +159,37 @@ def test_knowledge_block_separates_chunks():
 def test_empty_transcript_returns_no_model_version():
     text, mv = feedback.generate_feedback({"question": Q, "transcript": ""})
     assert mv == ""
+
+
+# ---- 重试：只重试瞬时故障，不重试空/截断（Task 3）----
+
+def test_generate_retries_on_transient_error(monkeypatch):
+    from google.genai import errors
+    calls = {"n": 0}
+
+    def fake_generate(prompt):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise errors.ServerError(
+                503, {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}})
+        return ("ok text", "gemini-3.6-flash")
+
+    monkeypatch.setattr(feedback, "_generate", fake_generate)
+    monkeypatch.setattr(feedback.time, "sleep", lambda s: None)  # 别真睡 2s+4s
+    text, mv = feedback._generate_with_retry("prompt")
+    assert calls["n"] == 3
+    assert text == "ok text"
+
+
+def test_generate_does_not_retry_on_empty_response(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_generate(prompt):
+        calls["n"] += 1
+        raise RuntimeError("Gemini 未返回可用文本")  # _generate 对空响应抛的错
+
+    monkeypatch.setattr(feedback, "_generate", fake_generate)
+    monkeypatch.setattr(feedback.time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError):
+        feedback._generate_with_retry("prompt")
+    assert calls["n"] == 1  # 只调一次，不重试

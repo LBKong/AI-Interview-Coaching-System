@@ -74,3 +74,39 @@ def test_retrieve_finds_relevant_chunk(monkeypatch):
     joined = "\n".join(chunks)
     assert any(m in joined for m in ("avoids the conflict", "bypasses the conflict")), (
         f"expected the conflict-avoidance chunk, got:\n{joined}")
+
+
+# ---- per-question RAG 覆盖（within-subjects 消融，Task 2）----
+
+def _mock_retrieval(monkeypatch):
+    """mock 掉 index/model，让 retrieve 一旦"决定检索"就返回固定块（不联网、不建索引）。"""
+    class FakeIndex:
+        def search(self, qvec, k):
+            return np.zeros((1, 2), dtype="float32"), np.array([[0, 1]])
+
+    class FakeModel:
+        def encode(self, texts, **kw):
+            return np.ones((1, 384), dtype="float32")
+
+    monkeypatch.setattr(rag, "_load_index", lambda: (FakeIndex(), ["chunk A", "chunk B"]))
+    monkeypatch.setattr(rag, "_get_model", lambda: FakeModel())
+
+
+def test_retrieve_enabled_true_overrides_global_false(monkeypatch):
+    monkeypatch.setattr(config, "RAG_ENABLED", False)
+    _mock_retrieval(monkeypatch)
+    assert rag.retrieve("q", "a", k=2, enabled=True) == ["chunk A", "chunk B"]
+
+
+def test_retrieve_enabled_false_overrides_global_true(monkeypatch):
+    monkeypatch.setattr(config, "RAG_ENABLED", True)
+    _mock_retrieval(monkeypatch)  # 若真去检索会返回块；enabled=False 应在检索前短路
+    assert rag.retrieve("q", "a", k=2, enabled=False) == []
+
+
+def test_retrieve_enabled_none_uses_global(monkeypatch):
+    _mock_retrieval(monkeypatch)
+    monkeypatch.setattr(config, "RAG_ENABLED", False)
+    assert rag.retrieve("q", "a", k=2, enabled=None) == []
+    monkeypatch.setattr(config, "RAG_ENABLED", True)
+    assert rag.retrieve("q", "a", k=2, enabled=None) == ["chunk A", "chunk B"]

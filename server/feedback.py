@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import time
+
 from server import config, rag
 
 # 教练人设 + 五段结构 + 硬规则 + "ASR 转录"声明 + 输出要求。
@@ -146,20 +148,56 @@ def _generate(prompt: str) -> tuple[str, str]:
     return text, model_version
 
 
-def generate_feedback(summary: dict, *, k: int = 3) -> tuple[str, str]:
-    """入口：吃 summary → (反馈文本, modelVersion)。两个消融开关在这里自然生效。
+# 瞬时故障（5xx/429/网络超时）才重试；空/截断（_generate 抛的 RuntimeError）不重试——
+# 安全拦截不会因重试改变，截断是 token 预算问题会复发。异常类型见 google.genai.errors。
+_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
-    - RAG（RQ2a）：knowledge 来自 rag.retrieve()，其内部按 config.RAG_ENABLED 门控，关掉返回 []。
+
+def _generate_with_retry(prompt: str, *, backoffs: tuple[int, ...] = (2, 4)) -> tuple[str, str]:
+    """对 _generate 加薄重试层。最多 3 次（首次 + 2 次重试），退避 2s、4s（总墙钟 ~30s 内）。"""
+    from google.genai import errors
+    import httpx
+
+    max_attempts = len(backoffs) + 1
+    for attempt in range(max_attempts):
+        try:
+            return _generate(prompt)
+        except errors.APIError as e:
+            # 只重试瞬时状态码；其余（如 400/401/403）立即上抛
+            if getattr(e, "code", None) not in _TRANSIENT_STATUS or attempt == max_attempts - 1:
+                raise
+        except httpx.TransportError:  # 网络超时/连接错误：瞬时
+            if attempt == max_attempts - 1:
+                raise
+        # 注意：_generate 抛的 RuntimeError（空/截断）不在上面两个 except 内 → 直接上抛，不重试
+        time.sleep(backoffs[attempt])
+    raise RuntimeError("unreachable")  # 逻辑上到不了
+
+
+def generate_feedback(
+    summary: dict,
+    *,
+    k: int = 3,
+    rag_enabled: bool | None = None,
+    return_chunks: bool = False,
+):
+    """入口：吃 summary → (反馈文本, modelVersion)[, 检索到的知识块]。两个消融开关在这里自然生效。
+
+    - RAG（RQ2a）：knowledge 来自 rag.retrieve()，per-question 用 rag_enabled 覆盖，None 时回退全局。
     - 多模态（RQ2b）：gaze/wpm 只在 summary 带这两个字段时才进提示词（build_summary 关掉时本就不写）。
     两个开关都只有单一真源，feedback.py 不再重读全局 flag（设计决定①②）。
+
+    return_chunks=True → 额外返回检索到的知识块列表，供调用方拿 knowledge_chunks_used，
+    避免 /transcribe 里再检索一遍（双重检索既浪费又可能不一致）。
     """
     question = summary.get("question", "")
     answer = (summary.get("transcript") or "").strip()
     if not answer:  # 空转录：不调 LLM，省额度
         # 这条路径没调过任何模型 → 模型版本返回空串；否则落库后与"真跑过模型"的记录无法区分。
-        return ("(No answer was transcribed, so no feedback could be generated.)", "")
+        msg = ("(No answer was transcribed, so no feedback could be generated.)", "")
+        return (*msg, []) if return_chunks else msg
 
-    knowledge = rag.retrieve(question, answer, k=k)  # [] 当 RAG 关（RQ2a）
+    knowledge = rag.retrieve(question, answer, k=k, enabled=rag_enabled)  # [] 当 RAG 关（RQ2a）
     prompt = build_prompt(
         question,
         answer,
@@ -167,4 +205,5 @@ def generate_feedback(summary: dict, *, k: int = 3) -> tuple[str, str]:
         gaze_ratio=summary.get("gaze_on_camera_ratio"),  # None 当多模态关（RQ2b）
         avg_wpm=summary.get("avg_wpm"),
     )
-    return _generate(prompt)
+    text, model_version = _generate_with_retry(prompt)  # 瞬时故障自动重试
+    return (text, model_version, knowledge) if return_chunks else (text, model_version)
