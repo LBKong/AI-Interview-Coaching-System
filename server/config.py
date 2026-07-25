@@ -46,6 +46,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # 型号写死、不用 *-latest 别名：别名会自动升级，破坏评估结果的可复现性。
 # 选 flash 而非 flash-lite：反馈文本是本研究的因变量（专家评审 / LLM 裁判 / 被试问卷
 # 都在评它），生成质量不降档。2.5 系 2026-10 退役、preview 系会无预警变动，均已避开。
-GEMINI_MODEL = "gemini-3.5-flash"
+# 2026-07-24 从 gemini-3.5-flash 切到 gemini-3.6-flash：3.5-flash 在整个开发期每次调用
+# 都返回 503（服务端 high-demand），本网络/时区下不可靠；3.6-flash 已端到端验证可用。
+# ⚠ 此型号已为研究冻结——一旦开始采集评估数据，绝不可再改（否则破坏可比性/可复现性）。
+GEMINI_MODEL = "gemini-3.6-flash"
 FEEDBACK_TEMPERATURE = 0.3          # 低温：反馈要稳、可复现（评估要复算）
 FEEDBACK_LANGUAGE = "English"       # 面试与回答都是英文；想看中文反馈改成 "Chinese"
