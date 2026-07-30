@@ -52,3 +52,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.6-flash"
 FEEDBACK_TEMPERATURE = 0.3          # 低温：反馈要稳、可复现（评估要复算）
 FEEDBACK_LANGUAGE = "English"       # 面试与回答都是英文；想看中文反馈改成 "Chinese"
+
+# ---- LLM 裁判（evaluation，离线）----
+# 裁判 = 生成模型（都 gemini-3.6-flash），这是刻意且已知的取舍：
+# 本账户 Pro 档不可用/不稳定（2.5-pro 账户级屏蔽、3-pro-preview 退役、flash-lite 数天内从
+# 200 变 404），唯一反复验证"稳定可用"的只有 3.6-flash。裁判评估中途 404 的风险，比同模型的
+# self-preference 风险更糟。self-preference 由专家校准环节检验（2-3 位专家按同一 rubric 打
+# ~20 样本）：若同模型裁判与专家高度相关，则 self-preference 无实质影响；若不相关，本就不会用它。
+# 这是一条诚实、可辩护的局限（论文 limitations 需写明）。因此 judge_model_version 必须每条都记录。
+JUDGE_MODEL = "gemini-3.6-flash"    # 与生成同模型（原因见上）；写死非别名，保证可复现
+JUDGE_TEMPERATURE = 0.0             # 打分要尽量确定、可复现（生成侧是 0.3）
