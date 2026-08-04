@@ -15,6 +15,12 @@
 import json
 from pathlib import Path
 
+# ⚠ 原生库导入顺序不能交换：FAISS 与 PyTorch wheel 都自带 OpenMP runtime；
+# 在 macOS 上先加载 FAISS 再初始化 PyTorch 计算会触发 native segfault。这里提前加载
+# PyTorch，确保后续 build/load 路径中的懒加载 FAISS 使用安全顺序；embedding 模型本身
+# 仍由 _get_model() 懒加载，不做启动时预热。
+import torch  # noqa: F401
+
 from . import config
 
 KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
