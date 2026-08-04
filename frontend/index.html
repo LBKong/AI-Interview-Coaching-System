@@ -1,39 +1,55 @@
 <!doctype html>
-<html lang="zh">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>L0 面试地基</title>
+  <title>AI Interview Practice</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <h1>L0 面试地基</h1>
+  <h1>AI Interview Practice</h1>
+  <p>Answer each question as you would in a real interview. Feedback will appear after every answer.</p>
 
   <section id="conn">
-    <button id="btn-hello">发 hello 测试链路</button>
-    <button id="btn-media">开启摄像头 + 麦克风</button>
-    <span id="ws-status">未连接</span>
-    <pre id="log"></pre>
+    <button id="btn-media">Enable camera and microphone</button>
+    <span id="ws-status" hidden>Connecting…</span>
+    <div id="debug-tools" hidden>
+      <button id="btn-hello">Send hello test</button>
+      <pre id="log"></pre>
+    </div>
   </section>
 
   <section id="capture" hidden>
     <video id="selfview" autoplay muted playsinline></video>
-    <div>麦克风电平：<meter id="mic" min="0" max="1" value="0"></meter></div>
-    <div><button id="btn-gaze">开始凝视检测</button> <span id="gaze-live"></span></div>
-    <div style="font-size:.9em;color:#555">
-      校准阈值(5秒)：
-      <button id="btn-calib-look">直视镜头</button>
-      <button id="btn-calib-away">看别处</button>
+    <div>Microphone level: <meter id="mic" min="0" max="1" value="0"></meter></div>
+    <div><button id="btn-gaze">Enable gaze tracking</button> <span id="gaze-live"></span></div>
+    <div id="calibration-tools" hidden style="font-size:.9em;color:#555">
+      Gaze calibration (5 seconds):
+      <button id="btn-calib-look">Look at the camera</button>
+      <button id="btn-calib-away">Look away</button>
     </div>
     <hr />
-    <p>题目：<strong id="question"></strong></p>
-    <button id="btn-start">开始（出题并回答）</button>
-    <button id="btn-end">结束</button>
-    <p>转录：<span id="transcript"></span></p>
-    <h3>统计量</h3>
-    <pre id="stats"></pre>
+    <div id="interview-panel">
+      <p id="question-progress"></p>
+      <p>Question: <strong id="question"></strong></p>
+      <button id="btn-start">Start interview</button>
+      <button id="btn-end" hidden>Submit answer</button>
+      <p id="answer-status" aria-live="polite"></p>
+      <p>Transcript: <span id="transcript"></span></p>
+
+      <section id="feedback" aria-live="polite"></section>
+      <button id="btn-next" hidden>Next question</button>
+
+      <pre id="stats" hidden></pre>
+    </div>
+
+    <section id="end-screen" hidden>
+      <h2>Thank you</h2>
+      <p>The session is complete.</p>
+    </section>
   </section>
 
+  <script src="/study_config.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

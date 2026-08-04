@@ -2,11 +2,23 @@ const log = (m) => {
   document.getElementById("log").textContent += m + "\n";
 };
 
+const debugMode = new URLSearchParams(location.search).get("debug") === "1";
+if (debugMode) {
+  document.getElementById("debug-tools").hidden = false;
+  document.getElementById("calibration-tools").hidden = false;
+  document.getElementById("ws-status").hidden = false;
+}
+
+const STUDY_PLAN = window.STUDY_PLAN;
+if (!Array.isArray(STUDY_PLAN) || !STUDY_PLAN.length) {
+  throw new Error("STUDY_PLAN is missing or empty");
+}
+
 // https 页面必须用 wss(否则浏览器拦截混合内容, 抛异常会中断整个脚本)
 const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
 const ws = new WebSocket(`${wsProto}//${location.host}/ws`);
-ws.onopen = () => { document.getElementById("ws-status").textContent = "已连接"; };
-ws.onclose = () => { document.getElementById("ws-status").textContent = "已断开"; };
+ws.onopen = () => { document.getElementById("ws-status").textContent = "Connected"; };
+ws.onclose = () => { document.getElementById("ws-status").textContent = "Disconnected"; };
 ws.onmessage = (e) => { log("收到: " + e.data); };
 
 document.getElementById("btn-hello").onclick = () => {
@@ -43,7 +55,7 @@ async function initMedia() {
 }
 
 document.getElementById("btn-media").onclick = () =>
-  initMedia().catch((e) => log("媒体权限失败: " + e));
+  initMedia().catch((e) => log("Media permission failed: " + e));
 
 // ---- Step 3: 录音(内存) → 结束时上传转录 ----
 let recorder = null;
@@ -52,6 +64,7 @@ let recMime = "audio/webm";
 
 // 本轮 session 状态（Step 6）
 let sessionId = null;
+let currentQ = 0;
 let gazeBuffer = [];
 
 function pickMime() {
@@ -63,11 +76,11 @@ function pickMime() {
 }
 
 function startRecording() {
-  if (!mediaStream) { log("请先开启摄像头+麦克风"); return; }
+  if (!mediaStream) { log("Enable the camera and microphone first"); return false; }
   audioChunks = [];
   // 只用音频轨道单独建流：避免把 视频+音频 混合流喂给纯音频容器导致录不出数据
   const audioTracks = mediaStream.getAudioTracks();
-  if (!audioTracks.length) { log("❌ 没有音频轨道"); return; }
+  if (!audioTracks.length) { log("No audio track is available"); return false; }
   const audioStream = new MediaStream(audioTracks);
   recMime = pickMime();
   recorder = recMime
@@ -75,29 +88,139 @@ function startRecording() {
     : new MediaRecorder(audioStream);
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) audioChunks.push(e.data); };
   recorder.start(1000); // 每秒切一块，避免只在 stop 才拿到数据
-  log("开始录音");
+  log("Recording started");
+  return true;
 }
 
 async function stopRecordingAndTranscribe() {
-  if (!recorder) { log("尚未开始录音"); return; }
+  if (!sessionId) {
+    log("ERROR: sessionId is missing; upload stopped");
+    showFeedbackFailure();
+    showNextButton();
+    return;
+  }
+  if (!recorder || recorder.state !== "recording") {
+    log("Recording has not started");
+    showFeedbackFailure();
+    showNextButton();
+    return;
+  }
+  document.getElementById("btn-end").disabled = true;
   const done = new Promise((res) => (recorder.onstop = res));
   recorder.stop();
   await done;
   const blob = new Blob(audioChunks, { type: recorder.mimeType || "audio/webm" });
+  recorder = null;
   audioChunks = []; // 立即丢弃内存音频
-  log("录到音频: " + blob.size + " 字节");
-  if (!blob.size) { log("❌ 录到 0 字节，检查麦克风是否有信号"); return; }
+  log("Recorded audio: " + blob.size + " bytes");
+  if (!blob.size) {
+    log("No audio was recorded");
+    showFeedbackFailure();
+    showNextButton();
+    return;
+  }
+
+  showFeedbackGenerating();
   const form = new FormData();
   form.append("audio", blob, "answer");
-  form.append("session_id", sessionId || String(Date.now()));
-  form.append("question", document.getElementById("question").textContent || "");
+  form.append("session_id", sessionId);
+  form.append("question_index", String(currentQ));
+  form.append("question", STUDY_PLAN[currentQ].question);
+  form.append("rag", STUDY_PLAN[currentQ].rag);
   form.append("gaze", JSON.stringify(gazeBuffer));
-  const resp = await fetch("/transcribe", { method: "POST", body: form });
-  const data = await resp.json();
-  if (data.error) { log("❌ 后端: " + data.error); return; }
-  document.getElementById("transcript").textContent = data.summary.transcript || "(无转录)";
-  document.getElementById("stats").textContent = JSON.stringify(data.summary, null, 2);
-  log("已汇总落库: " + data.saved_to);
+
+  try {
+    const resp = await fetch("/transcribe", { method: "POST", body: form });
+    const data = await resp.json();
+    if (data.error || !data.summary) {
+      log("Backend error: " + (data.error || "missing summary"));
+      showFeedbackFailure();
+      showNextButton();
+      return;
+    }
+
+    document.getElementById("transcript").textContent = data.summary.transcript || "(No transcript)";
+    document.getElementById("stats").textContent = JSON.stringify(data.summary, null, 2);
+    log("Saved: " + data.saved_to);
+
+    const feedback = data.summary.feedback;
+    if (feedback && feedback.status === "ok" && feedback.text) {
+      showFeedbackSuccess(feedback.text);
+    } else {
+      showFeedbackFailure();
+    }
+  } catch (e) {
+    log("Upload failed: " + e);
+    showFeedbackFailure();
+  }
+  showNextButton();
+}
+
+// ---- L1 Step 3: participant feedback states ----
+function clearFeedback() {
+  const area = document.getElementById("feedback");
+  area.className = "";
+  area.replaceChildren();
+  document.getElementById("btn-next").hidden = true;
+}
+
+function showFeedbackGenerating() {
+  const area = document.getElementById("feedback");
+  area.className = "feedback-loading";
+  area.replaceChildren();
+  const spinner = document.createElement("span");
+  spinner.className = "spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  const message = document.createElement("p");
+  message.textContent = "Generating your feedback — this takes around 10–15 seconds…";
+  area.append(spinner, message);
+  document.getElementById("answer-status").textContent = "Your answer has been submitted.";
+}
+
+function renderFeedbackText(text) {
+  const area = document.getElementById("feedback");
+  area.className = "feedback-success";
+  area.replaceChildren();
+  const fixedHeadings = new Set([
+    "Did you answer the question?",
+    "What worked",
+    "What to improve",
+    "Delivery",
+    "Next time",
+  ]);
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    // The prompt asks for ### headings, but tolerate another Markdown level or
+    // a bare fixed heading so harmless model formatting drift cannot break UI.
+    const headingMatch = line.match(/^#{1,6}\s+(.+)$/);
+    const content = headingMatch ? headingMatch[1] : line;
+    const isHeading = Boolean(headingMatch) || fixedHeadings.has(content);
+    const node = document.createElement(isHeading ? "h4" : "p");
+    node.textContent = content;
+    area.appendChild(node);
+  }
+}
+
+function showFeedbackSuccess(text) {
+  renderFeedbackText(text);
+  document.getElementById("answer-status").textContent = "Feedback ready.";
+}
+
+function showFeedbackFailure() {
+  const area = document.getElementById("feedback");
+  area.className = "feedback-failure";
+  area.replaceChildren();
+  const heading = document.createElement("h3");
+  heading.textContent = "Feedback unavailable";
+  const message = document.createElement("p");
+  message.textContent = "The feedback couldn't be generated this time. That's a problem on our side, not with your answer.";
+  area.append(heading, message);
+  document.getElementById("answer-status").textContent = "Your answer has been submitted.";
+}
+
+function showNextButton() {
+  document.getElementById("btn-next").hidden = false;
 }
 
 // 录音/转录由「开始/结束」按钮驱动（见 Step 5）
@@ -157,7 +280,7 @@ function startGazeLoop() {
       const { yaw, pitch } = headAnglesDeg(mats[0].data);
       looking = Math.abs(yaw) < GAZE_ON_CAMERA_DEG && Math.abs(pitch) < GAZE_ON_CAMERA_DEG;
       document.getElementById("gaze-live").textContent =
-        `${looking ? "看镜头" : "看别处"} (yaw=${yaw.toFixed(0)}, pitch=${pitch.toFixed(0)})`;
+        `${looking ? "Looking at camera" : "Looking away"} (yaw=${yaw.toFixed(0)}, pitch=${pitch.toFixed(0)})`;
     }
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "gaze", t, looking }));
@@ -172,7 +295,10 @@ function stopGazeLoop() {
 }
 
 document.getElementById("btn-gaze").onclick = () =>
-  initGaze().then(startGazeLoop).catch((e) => log("MediaPipe 失败: " + e));
+  initGaze().then(() => {
+    document.getElementById("btn-gaze").textContent = "Gaze tracking ready";
+    document.getElementById("btn-gaze").disabled = true;
+  }).catch((e) => log("MediaPipe failed: " + e));
 
 // ---- Step 4 校准：采集两种情况的 yaw/pitch 分布，为阈值提供依据(论文方法章节用)----
 function pct(arr, p) {
@@ -207,13 +333,15 @@ function collectCalibration(label, seconds = 5) {
 document.getElementById("btn-calib-look").onclick = () => collectCalibration("看镜头");
 document.getElementById("btn-calib-away").onclick = () => collectCalibration("看别处");
 
-// ---- Step 5: 会话流程 出题→听→结束（手动结束，不做端点检测）----
-// 关键：先念题，念完(TTS onend)再开始录音+凝视，避免题目 TTS 被麦克风录进答案里。
+// ---- L1 Step 3: 问题循环。每题仍保持 TTS 念完再录音，避免题目声音污染答案。----
 function beginAnswer() {
   if (recorder && recorder.state === "recording") return; // 防重入
-  startRecording();
+  if (!startRecording()) return;
   if (faceLandmarker) startGazeLoop();
-  log("请开始回答（正在录音+凝视）");
+  document.getElementById("btn-end").hidden = false;
+  document.getElementById("btn-end").disabled = false;
+  document.getElementById("answer-status").textContent = "Recording — answer the question, then submit.";
+  log("Answer started (recording + gaze)");
 }
 
 function askAndListen(text) {
@@ -230,7 +358,7 @@ function askAndListen(text) {
     // 兜底：仅当 TTS 根本没开始念(静默失败)时才直接开始，不会打断正常念题
     setTimeout(() => { if (!started) beginAnswer(); }, 1000);
   } catch (e) {
-    log("TTS 不可用，直接开始: " + e);
+    log("TTS unavailable; starting answer directly: " + e);
     beginAnswer();
   }
 }
@@ -246,17 +374,63 @@ ws.onmessage = (e) => {
   }
 };
 
-document.getElementById("btn-start").onclick = () => {
+function resetQuestionState() {
+  speechSynthesis.cancel();
+  stopGazeLoop();
+  audioChunks = [];
+  gazeBuffer = [];
+  recorder = null;
+  sessionT0 = null;
   document.getElementById("transcript").textContent = "";
   document.getElementById("stats").textContent = "";
+  document.getElementById("answer-status").textContent = "Listen to the question. Recording starts after it is read aloud.";
+  document.getElementById("btn-end").hidden = true;
+  document.getElementById("btn-end").disabled = false;
+  clearFeedback();
+}
+
+function askCurrentQuestion() {
+  resetQuestionState();
+  const item = STUDY_PLAN[currentQ];
+  document.getElementById("question-progress").textContent =
+    `Question ${currentQ + 1} of ${STUDY_PLAN.length}`;
+  document.getElementById("question").textContent = item.question;
+  askAndListen(item.question);
+  log(`Question ${currentQ + 1} started (RAG ${item.rag})`);
+}
+
+function finishSession() {
+  speechSynthesis.cancel();
+  stopGazeLoop();
+  document.getElementById("interview-panel").hidden = true;
+  document.getElementById("end-screen").hidden = false;
+}
+
+document.getElementById("btn-start").onclick = () => {
+  if (!mediaStream) {
+    log("Enable the camera and microphone first");
+    return;
+  }
   sessionId = String(Date.now());
-  gazeBuffer = [];
-  ws.send(JSON.stringify({ type: "start" }));
-  log("会话开始：正在念题，念完自动开始录音…");
+  currentQ = 0;
+  document.getElementById("btn-start").hidden = true;
+  document.getElementById("end-screen").hidden = true;
+  document.getElementById("interview-panel").hidden = false;
+  askCurrentQuestion();
+  log("Session started; sessionId fixed for all questions");
 };
 
 document.getElementById("btn-end").onclick = async () => {
   stopGazeLoop();
   await stopRecordingAndTranscribe();
-  log("会话结束");
+  log(`Question ${currentQ + 1} submitted`);
+};
+
+document.getElementById("btn-next").onclick = () => {
+  currentQ += 1;
+  if (currentQ < STUDY_PLAN.length) {
+    askCurrentQuestion();
+  } else {
+    finishSession();
+  }
 };
