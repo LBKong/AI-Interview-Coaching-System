@@ -1,0 +1,487 @@
+"""专家–LLM 裁判校准（离线分析，L1 Step 4）。
+
+输入：
+- ``scores/session_{id}_q{idx}.json``：由 judge.py 生成，包含五维 score 和
+  judge_model_version。
+- 每位专家一个 CSV，例如 ``expert_scores/expert_1.csv``。首行为：
+
+  sample_id,accuracy,specificity,actionability,coverage,overall_usefulness
+
+  ``sample_id`` 必须等于 judge JSON 的文件名 stem（例如 session_1783_q0）；五维
+  必须是 1–5 整数。缺失、空白、越界和重复 sample_id 都会抛错，不做插补。
+
+默认运行方式：
+``python -m server.calibration``
+读取 scores/ 与 expert_scores/*.csv，写 calibration_report.json，并打印统计表。
+这是离线研究工具，不接入任何 API endpoint，也不调用 LLM 或网络。
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+from collections import Counter
+from importlib.metadata import version
+from itertools import combinations
+from pathlib import Path
+from statistics import fmean, median, pvariance
+
+from scipy.stats import permutation_test, spearmanr
+from sklearn.metrics import cohen_kappa_score
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_SCORES_DIR = PROJECT_ROOT / "scores"
+DEFAULT_EXPERT_DIR = PROJECT_ROOT / "expert_scores"
+DEFAULT_REPORT_PATH = PROJECT_ROOT / "calibration_report.json"
+
+DIMENSIONS = (
+    "accuracy",
+    "specificity",
+    "actionability",
+    "coverage",
+    "overall_usefulness",
+)
+
+MIN_EXPERT_POPULATION_VARIANCE = 0.25  # SD >= 0.5 个评分点；真实数据前预注册
+SPEARMAN_PERMUTATION_RESAMPLES = 9999
+SPEARMAN_PERMUTATION_SEED = 20260806
+
+
+def _validate_score(value, *, source: str, sample_id: str, dimension: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:
+        raise ValueError(
+            f"{source} 的 {sample_id}.{dimension} 非法：应为 1..5 整数，实际为 {value!r}"
+        )
+    return value
+
+
+def load_judge_scores(scores_dir: Path) -> tuple[dict[str, dict[str, int]], str]:
+    """读取并严格校验 judge JSON；返回 sample→五维分数及唯一模型版本。"""
+    paths = sorted(Path(scores_dir).glob("session_*.json"))
+    if not paths:
+        raise ValueError(f"没有找到 judge score 文件：{scores_dir}")
+
+    rows: dict[str, dict[str, int]] = {}
+    versions: set[str] = set()
+    for path in paths:
+        sample_id = path.stem
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"无法读取 judge score：{path}: {exc}") from exc
+
+        raw_scores = payload.get("scores")
+        if not isinstance(raw_scores, dict):
+            raise ValueError(f"{path} 缺少 scores 对象")
+        scores: dict[str, int] = {}
+        for dimension in DIMENSIONS:
+            entry = raw_scores.get(dimension)
+            value = entry.get("score") if isinstance(entry, dict) else None
+            scores[dimension] = _validate_score(
+                value, source=path.name, sample_id=sample_id, dimension=dimension
+            )
+        rows[sample_id] = scores
+
+        version = payload.get("judge_model_version")
+        if not isinstance(version, str) or not version.strip():
+            raise ValueError(f"{path} 缺少 judge_model_version")
+        versions.add(version.strip())
+
+    if len(versions) != 1:
+        raise ValueError(f"judge_model_version 不一致：{sorted(versions)}")
+    return rows, next(iter(versions))
+
+
+def _parse_expert_score(raw: str | None, *, path: Path, sample_id: str, dimension: str) -> int:
+    text = "" if raw is None else raw.strip()
+    if text not in {"1", "2", "3", "4", "5"}:
+        raise ValueError(
+            f"{path.name} 的 {sample_id}.{dimension} 非法：应为 1..5 整数，实际为 {raw!r}"
+        )
+    return int(text)
+
+
+def load_expert_scores(path: Path) -> dict[str, dict[str, int]]:
+    """读取一位专家的 CSV；所有行先校验，再参与完整样本对齐。"""
+    path = Path(path)
+    try:
+        handle = path.open(newline="")
+    except OSError as exc:
+        raise ValueError(f"无法读取专家 CSV：{path}: {exc}") from exc
+
+    with handle:
+        reader = csv.DictReader(handle)
+        required = {"sample_id", *DIMENSIONS}
+        missing = required - set(reader.fieldnames or ())
+        if missing:
+            raise ValueError(f"{path.name} 缺少列：{sorted(missing)}")
+
+        rows: dict[str, dict[str, int]] = {}
+        for line_number, row in enumerate(reader, start=2):
+            sample_id = (row.get("sample_id") or "").strip()
+            if not sample_id:
+                raise ValueError(f"{path.name}:{line_number} 的 sample_id 为空")
+            if sample_id in rows:
+                raise ValueError(f"{path.name} 有重复 sample_id：{sample_id}")
+            rows[sample_id] = {
+                dimension: _parse_expert_score(
+                    row.get(dimension), path=path, sample_id=sample_id, dimension=dimension
+                )
+                for dimension in DIMENSIONS
+            }
+
+    if not rows:
+        raise ValueError(f"专家 CSV 没有评分行：{path}")
+    return rows
+
+
+def _align_scores(judge_rows, expert_rows):
+    all_sets = [set(judge_rows), *(set(rows) for rows in expert_rows.values())]
+    candidates = set().union(*all_sets)
+    complete = set.intersection(*all_sets)
+    sample_ids = sorted(complete)
+    alignment = {
+        "judge_samples": len(judge_rows),
+        "expert_samples": {name: len(rows) for name, rows in expert_rows.items()},
+        "candidate_samples": len(candidates),
+        "complete_samples": len(sample_ids),
+        "dropped_incomplete": len(candidates) - len(sample_ids),
+        "sample_ids": sample_ids,
+    }
+    if not sample_ids:
+        raise ValueError(
+            f"对齐后没有完整样本（候选 {len(candidates)}；请检查各 CSV 的 sample_id）"
+        )
+    return sample_ids, alignment
+
+
+def _has_any_variance(values) -> bool:
+    return len(values) >= 2 and len(set(values)) >= 2
+
+
+def _category_label(value) -> str:
+    number = float(value)
+    return str(int(number)) if number.is_integer() else str(number)
+
+
+def _variance_diagnostics(values) -> dict:
+    variance = float(pvariance(values)) if values else None
+    frequencies = Counter(values)
+    sufficient = (
+        len(values) >= 2
+        and len(frequencies) >= 2
+        and variance is not None
+        and variance >= MIN_EXPERT_POPULATION_VARIANCE
+    )
+    return {
+        "status": "sufficient" if sufficient else "insufficient",
+        "population_variance": variance,
+        "unique_values": sorted(frequencies),
+        "category_frequencies": {
+            _category_label(value): count for value, count in sorted(frequencies.items())
+        },
+    }
+
+
+def _scaled(values, factor: int) -> list[int]:
+    return [int(round(value * factor)) for value in values]
+
+
+def _finite_float(value) -> float | None:
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _spearman_with_permutation_p(left, right) -> tuple[float | None, float | None]:
+    rho = _finite_float(spearmanr(left, right).statistic)
+    if rho is None:
+        return None, None
+
+    def statistic(permuted_right):
+        return spearmanr(left, permuted_right).statistic
+
+    result = permutation_test(
+        (right,),
+        statistic,
+        permutation_type="pairings",
+        vectorized=False,
+        n_resamples=SPEARMAN_PERMUTATION_RESAMPLES,
+        alternative="two-sided",
+        rng=SPEARMAN_PERMUTATION_SEED,
+    )
+    return rho, _finite_float(result.pvalue)
+
+
+def _agreement(
+    left,
+    right,
+    *,
+    scale: int,
+    labels: list[int],
+    require_right_variance_for_kappa: bool = False,
+    left_variance_sufficient: bool | None = None,
+    right_variance_sufficient: bool | None = None,
+) -> dict:
+    n = len(left)
+    exact = sum(abs(a - b) < 1e-12 for a, b in zip(left, right)) / n if n else 0.0
+    within_one = sum(abs(a - b) <= 1.0 + 1e-12 for a, b in zip(left, right)) / n if n else 0.0
+    left_varies = _has_any_variance(left)
+    right_varies = _has_any_variance(right)
+    left_spearman_ok = left_varies if left_variance_sufficient is None else left_variance_sufficient
+    right_spearman_ok = (
+        right_varies if right_variance_sufficient is None else right_variance_sufficient
+    )
+    spearman_sufficient = left_spearman_ok and right_spearman_ok
+    if spearman_sufficient:
+        rho, p_value = _spearman_with_permutation_p(left, right)
+    else:
+        rho = p_value = None
+
+    kappa_allowed = (
+        bool(left)
+        and (left_varies or right_varies)
+        and (right_spearman_ok or not require_right_variance_for_kappa)
+    )
+    if kappa_allowed:
+        kappa = _finite_float(
+            cohen_kappa_score(
+                _scaled(left, scale),
+                _scaled(right, scale),
+                labels=labels,
+                weights="quadratic",
+            )
+        )
+    else:
+        kappa = None
+    if kappa is not None:
+        kappa_status = "ok"
+    elif require_right_variance_for_kappa and not right_spearman_ok:
+        kappa_status = "insufficient_expert_variance"
+    else:
+        kappa_status = "undefined"
+    return {
+        "n": n,
+        "spearman_status": "ok" if spearman_sufficient else "insufficient_variance",
+        "kappa_status": kappa_status,
+        "spearman_rho": rho,
+        "spearman_p_value": p_value,
+        "quadratic_weighted_kappa": kappa,
+        "exact_match_rate": exact,
+        "within_one_rate": within_one,
+    }
+
+
+def _pairwise_expert_report(expert_values, *, scale: int, labels: list[int]) -> dict:
+    pairs = []
+    for left_name, right_name in combinations(expert_values, 2):
+        left_diagnostics = _variance_diagnostics(expert_values[left_name])
+        right_diagnostics = _variance_diagnostics(expert_values[right_name])
+        stats = _agreement(
+            expert_values[left_name],
+            expert_values[right_name],
+            scale=scale,
+            labels=labels,
+            left_variance_sufficient=left_diagnostics["status"] == "sufficient",
+            right_variance_sufficient=right_diagnostics["status"] == "sufficient",
+        )
+        pairs.append({"experts": [left_name, right_name], **stats})
+
+    valid_rhos = [pair["spearman_rho"] for pair in pairs if pair["spearman_rho"] is not None]
+    valid_kappas = [
+        pair["quadratic_weighted_kappa"]
+        for pair in pairs
+        if pair["quadratic_weighted_kappa"] is not None
+    ]
+    return {
+        "pair_count": len(pairs),
+        "pairs": pairs,
+        "mean_spearman_rho": fmean(valid_rhos) if valid_rhos else None,
+        "mean_quadratic_weighted_kappa": fmean(valid_kappas) if valid_kappas else None,
+    }
+
+
+def _dimension_report(dimension, sample_ids, judge_rows, expert_rows) -> dict:
+    judge_values = [judge_rows[sample_id][dimension] for sample_id in sample_ids]
+    values_by_expert = {
+        name: [rows[sample_id][dimension] for sample_id in sample_ids]
+        for name, rows in expert_rows.items()
+    }
+    consensus = [
+        median(values_by_expert[name][index] for name in values_by_expert)
+        for index in range(len(sample_ids))
+    ]
+    variance_diagnostics = _variance_diagnostics(consensus)
+    expert_variance = variance_diagnostics["status"] == "sufficient"
+    return {
+        "n": len(sample_ids),
+        "variance_status": "sufficient" if expert_variance else "insufficient",
+        "variance_diagnostics": variance_diagnostics,
+        "expert_consensus_method": "median_per_sample",
+        "judge_vs_consensus": _agreement(
+            judge_values,
+            consensus,
+            scale=2,
+            labels=list(range(2, 11)),
+            require_right_variance_for_kappa=True,
+            right_variance_sufficient=expert_variance,
+        ),
+        "expert_expert": _pairwise_expert_report(
+            values_by_expert, scale=2, labels=list(range(2, 11))
+        ),
+    }
+
+
+def _mean_dimensions(scores: dict[str, int]) -> float:
+    return fmean(scores[dimension] for dimension in DIMENSIONS)
+
+
+def _overall_report(sample_ids, judge_rows, expert_rows, dimension_reports) -> dict:
+    judge_composites = [_mean_dimensions(judge_rows[sample_id]) for sample_id in sample_ids]
+    expert_composites = {
+        name: [_mean_dimensions(rows[sample_id]) for sample_id in sample_ids]
+        for name, rows in expert_rows.items()
+    }
+    consensus_composites = [
+        fmean(
+            median(expert_rows[name][sample_id][dimension] for name in expert_rows)
+            for dimension in DIMENSIONS
+        )
+        for sample_id in sample_ids
+    ]
+    sufficient = [
+        dimension
+        for dimension in DIMENSIONS
+        if dimension_reports[dimension]["variance_status"] == "sufficient"
+    ]
+    insufficient = [dimension for dimension in DIMENSIONS if dimension not in sufficient]
+    variance_diagnostics = _variance_diagnostics(consensus_composites)
+    expert_variance = variance_diagnostics["status"] == "sufficient"
+    return {
+        "n": len(sample_ids),
+        "method": "equal_weight_mean_all_five_dimensions_per_sample",
+        "mean_note": (
+            "Unweighted arithmetic mean of all five dimensions; variance-insufficient "
+            "dimensions remain included in the composite."
+        ),
+        "kappa_scale": "round(composite_mean * 10) to integer levels 10..50",
+        "composite_dimensions": list(DIMENSIONS),
+        "variance_sufficient_dimensions": sufficient,
+        "variance_insufficient_dimensions": insufficient,
+        "variance_status": "sufficient" if expert_variance else "insufficient",
+        "variance_diagnostics": variance_diagnostics,
+        "judge_vs_consensus": _agreement(
+            judge_composites,
+            consensus_composites,
+            scale=10,
+            labels=list(range(10, 51)),
+            require_right_variance_for_kappa=True,
+            right_variance_sufficient=expert_variance,
+        ),
+        "expert_expert": _pairwise_expert_report(
+            expert_composites, scale=10, labels=list(range(10, 51))
+        ),
+    }
+
+
+def build_report(scores_dir: Path, expert_csvs: list[Path]) -> dict:
+    """加载、完整样本对齐并计算逐维和 overall 校准统计。"""
+    if not 2 <= len(expert_csvs) <= 3:
+        raise ValueError(f"校准需要 2–3 位专家，实际提供 {len(expert_csvs)} 个 CSV")
+    judge_rows, model_version = load_judge_scores(Path(scores_dir))
+
+    expert_rows = {}
+    for path in expert_csvs:
+        name = Path(path).stem
+        if name in expert_rows:
+            raise ValueError(f"专家 CSV 名称重复：{name}")
+        expert_rows[name] = load_expert_scores(Path(path))
+
+    sample_ids, alignment = _align_scores(judge_rows, expert_rows)
+    dimensions = {
+        dimension: _dimension_report(dimension, sample_ids, judge_rows, expert_rows)
+        for dimension in DIMENSIONS
+    }
+    return {
+        "judge_model_version": model_version,
+        "methodology": {
+            "spearman_p_value": {
+                "method": "two_sided_paired_permutation",
+                "max_resamples": SPEARMAN_PERMUTATION_RESAMPLES,
+                "seed": SPEARMAN_PERMUTATION_SEED,
+            },
+            "variance_sufficiency": {
+                "rule": "n >= 2, at least two values, and population variance >= 0.25",
+                "minimum_population_variance": MIN_EXPERT_POPULATION_VARIANCE,
+            },
+            "libraries": {
+                "scipy": version("scipy"),
+                "scikit-learn": version("scikit-learn"),
+            },
+        },
+        "expert_consensus": {
+            "method": "median_per_sample_per_dimension",
+            "expert_count": len(expert_rows),
+            "experts": list(expert_rows),
+        },
+        "alignment": alignment,
+        "dimensions": dimensions,
+        "overall": _overall_report(sample_ids, judge_rows, expert_rows, dimensions),
+    }
+
+
+def _format_number(value, digits=3) -> str:
+    return "insufficient variance" if value is None else f"{value:.{digits}f}"
+
+
+def print_summary(report: dict) -> None:
+    """打印统计表，只报告数字，不解释裁判是否有效。"""
+    alignment = report["alignment"]
+    print(
+        f"Aligned samples: {alignment['complete_samples']} | "
+        f"Dropped incomplete: {alignment['dropped_incomplete']}"
+    )
+    print(f"Judge model version: {report['judge_model_version']}")
+    print(
+        "Dimension              n  Spearman rho  p-value  Weighted kappa  "
+        "Exact  Within-1  Expert-expert kappa"
+    )
+    rows = [*(report["dimensions"].items()), ("overall", report["overall"])]
+    for name, result in rows:
+        judge = result["judge_vs_consensus"]
+        expert_kappa = result["expert_expert"]["mean_quadratic_weighted_kappa"]
+        print(
+            f"{name:<22} {result['n']:>2}  "
+            f"{_format_number(judge['spearman_rho']):>12}  "
+            f"{_format_number(judge['spearman_p_value']):>7}  "
+            f"{_format_number(judge['quadratic_weighted_kappa']):>14}  "
+            f"{judge['exact_match_rate']:>5.1%}  {judge['within_one_rate']:>8.1%}  "
+            f"{_format_number(expert_kappa):>20}"
+        )
+    insufficient = report["overall"]["variance_insufficient_dimensions"]
+    print("Overall composite dimensions: " + ", ".join(report["overall"]["composite_dimensions"]))
+    print("Variance-insufficient dimensions: " + (", ".join(insufficient) if insufficient else "none"))
+
+
+def run_calibration(scores_dir: Path, expert_csvs: list[Path], output_path: Path) -> dict:
+    report = build_report(Path(scores_dir), [Path(path) for path in expert_csvs])
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+    print_summary(report)
+    return report
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Compute expert–LLM judge calibration statistics")
+    parser.add_argument("--scores-dir", type=Path, default=DEFAULT_SCORES_DIR)
+    parser.add_argument("--expert-dir", type=Path, default=DEFAULT_EXPERT_DIR)
+    parser.add_argument("--output", type=Path, default=DEFAULT_REPORT_PATH)
+    args = parser.parse_args()
+    expert_csvs = sorted(args.expert_dir.glob("*.csv"))
+    run_calibration(args.scores_dir, expert_csvs, args.output)
+
+
+if __name__ == "__main__":
+    main()
