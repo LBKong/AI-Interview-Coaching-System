@@ -14,10 +14,13 @@ DIMENSIONS = (
     "overall_usefulness",
 )
 
+SESSION_ID = "1783895535160"
+SAMPLE_PREFIX = f"session_{SESSION_ID}"
+
 
 def _same_dimension_rows(values):
     return {
-        f"session_S_q{i}": {dimension: value for dimension in DIMENSIONS}
+        f"{SAMPLE_PREFIX}_q{i}": {dimension: value for dimension in DIMENSIONS}
         for i, value in enumerate(values)
     }
 
@@ -26,7 +29,7 @@ def _write_judge_scores(directory, rows, model_version="gemini-3.6-flash"):
     directory.mkdir()
     for sample_id, scores in rows.items():
         payload = {
-            "session_id": "S",
+            "session_id": SESSION_ID,
             "question_index": int(sample_id.rsplit("q", 1)[1]),
             "scores": {
                 dimension: {"score": scores[dimension], "rationale": "fixture"}
@@ -119,7 +122,7 @@ def test_alignment_drops_incomplete(tmp_path):
     judge = _same_dimension_rows([1, 2, 3])
     expert_1 = _same_dimension_rows([1, 2, 3])
     expert_2 = dict(expert_1)
-    del expert_2["session_S_q1"]
+    del expert_2[f"{SAMPLE_PREFIX}_q1"]
     scores_dir, experts = _write_case(tmp_path, judge, expert_1, expert_2)
 
     report = calibration.build_report(scores_dir, experts)
@@ -128,14 +131,17 @@ def test_alignment_drops_incomplete(tmp_path):
     assert alignment["candidate_samples"] == 3
     assert alignment["complete_samples"] == 2
     assert alignment["dropped_incomplete"] == 1
-    assert alignment["sample_ids"] == ["session_S_q0", "session_S_q2"]
+    assert alignment["sample_ids"] == [
+        f"{SAMPLE_PREFIX}_q0",
+        f"{SAMPLE_PREFIX}_q2",
+    ]
     json.dumps(report, allow_nan=False)
 
 
 def test_alignment_raises_when_no_complete_samples(tmp_path):
     judge = _same_dimension_rows([2, 3])
     expert = {
-        sample_id.replace("session_S", "session_E"): scores
+        sample_id.replace(SAMPLE_PREFIX, "session_9999999999999"): scores
         for sample_id, scores in _same_dimension_rows([2, 3]).items()
     }
     scores_dir, experts = _write_case(tmp_path, judge, expert, expert)
@@ -184,7 +190,7 @@ def test_variance_insufficient_dimension_remains_in_composite(tmp_path):
     expert = {}
     judge = {}
     for index, content_score in enumerate((1, 2, 3)):
-        sample_id = f"session_S_q{index}"
+        sample_id = f"{SAMPLE_PREFIX}_q{index}"
         expert[sample_id] = {
             "accuracy": content_score,
             "specificity": content_score,
@@ -192,9 +198,9 @@ def test_variance_insufficient_dimension_remains_in_composite(tmp_path):
             "coverage": 5,
             "overall_usefulness": content_score,
         }
-    judge["session_S_q0"] = dict(zip(DIMENSIONS, (2, 2, 2, 1, 2)))
-    judge["session_S_q1"] = dict(zip(DIMENSIONS, (2, 2, 3, 3, 3)))
-    judge["session_S_q2"] = dict(zip(DIMENSIONS, (3, 3, 3, 5, 3)))
+    judge[f"{SAMPLE_PREFIX}_q0"] = dict(zip(DIMENSIONS, (2, 2, 2, 1, 2)))
+    judge[f"{SAMPLE_PREFIX}_q1"] = dict(zip(DIMENSIONS, (2, 2, 3, 3, 3)))
+    judge[f"{SAMPLE_PREFIX}_q2"] = dict(zip(DIMENSIONS, (3, 3, 3, 5, 3)))
     scores_dir, experts = _write_case(tmp_path, judge, expert, expert)
 
     report = calibration.build_report(scores_dir, experts)
@@ -271,7 +277,7 @@ def test_composite_equalweight_mean(tmp_path):
     )
     assert [sum(vector) / 5 for vector in judge_vectors] == [2, 3, 4]
     judge = {
-        f"session_S_q{i}": dict(zip(DIMENSIONS, vector))
+        f"{SAMPLE_PREFIX}_q{i}": dict(zip(DIMENSIONS, vector))
         for i, vector in enumerate(judge_vectors)
     }
     scores_dir, experts = _write_case(tmp_path, judge, expert, expert)

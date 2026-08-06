@@ -7,8 +7,10 @@
 
   sample_id,accuracy,specificity,actionability,coverage,overall_usefulness
 
-  ``sample_id`` 必须等于 judge JSON 的文件名 stem（例如 session_1783_q0）；五维
-  必须是 1–5 整数。缺失、空白、越界和重复 sample_id 都会抛错，不做插补。
+  ``sample_id`` 必须等于 judge JSON 的完整文件名 stem（例如
+  ``scores/session_1783895535160_q0.json`` 对应
+  ``session_1783895535160_q0``）；五维必须是 1–5 整数。缺失、空白、越界和重复
+  sample_id 都会抛错，不做插补。
 
 默认运行方式：
 ``python -m server.calibration``
