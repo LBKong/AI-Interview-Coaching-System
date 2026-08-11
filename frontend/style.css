@@ -1,12 +1,312 @@
-body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
-video { width: 320px; border: 1px solid #ccc; border-radius: 8px; transform: scaleX(-1); }
-pre { background: #f4f4f4; padding: .5rem; border-radius: 6px; min-height: 2rem; white-space: pre-wrap; }
-button { padding: .5rem 1rem; margin: .2rem; }
-#feedback { margin: 1.25rem 0; padding: 1rem; border-radius: 8px; background: #f7f8fa; }
-#feedback:empty { display: none; }
-#feedback h3 { margin-top: 0; }
-#feedback h4 { margin: 1rem 0 .25rem; }
-#feedback p { margin: .25rem 0 .75rem; line-height: 1.5; }
-.feedback-loading { display: flex; align-items: center; gap: .65rem; }
-.spinner { width: 1rem; height: 1rem; border: 2px solid #ccd2d9; border-top-color: #294f7a; border-radius: 50%; animation: spin .8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+/* ============================================================================
+   AI Interview Practice — participant interface
+   Drop-in stylesheet. Replaces the old style.css. No HTML or JS changes needed:
+   this targets the existing element IDs and the three feedback state classes
+   (.feedback-loading / .feedback-success / .feedback-failure) that app.js sets.
+
+   Design: calm, composed, credible — a cool-blue "focus" surface for answering,
+   a warm parchment "note" for the feedback, so the two phases read differently.
+   System fonts only (no web-font dependency — works offline and in regions where
+   Google Fonts is blocked).
+
+   Note: uses the :has() selector to tidy a few inline labels. Supported in all
+   current browsers (the app already needs a modern browser for camera + MediaPipe).
+   ========================================================================== */
+
+:root{
+  /* cool "focus" side */
+  --paper:#F4F6F9;
+  --card:#FFFFFF;
+  --ink:#1B2430;
+  --ink-soft:#5A6472;
+  --line:#E2E7EE;
+  --accent:#2E5A9E;          /* cool blue — composed, trustworthy */
+  --accent-deep:#22467A;     /* button hover */
+  --accent-tint:#E8EFF8;     /* pale blue fill */
+  /* warm "reflection" side — the coach's note */
+  --note:#FBF7EF;
+  --note-line:#EADFC9;
+  --note-ink:#2A2620;
+  --note-accent:#22467A;
+  /* functional */
+  --live:#B4472F;            /* recording dot */
+  --warn:#9E6B22;            /* failure edge */
+  --radius:14px;
+  --shadow:0 1px 2px rgba(27,36,48,.04), 0 10px 30px rgba(27,36,48,.06);
+  --serif:Georgia,"Times New Roman",serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+
+*{box-sizing:border-box}
+
+body{
+  font-family:var(--sans);
+  color:var(--ink);
+  background:var(--paper);
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  margin:0;
+  min-height:100vh;
+  /* center the content column in the viewport instead of pinning it left */
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:clamp(1.5rem,5vw,3.5rem) 1.5rem 4rem;
+}
+/* everything sits in one centered column that widens gently on larger screens */
+body > *{
+  width:100%;
+  max-width:720px;
+}
+
+/* ---- header ------------------------------------------------------------- */
+h1{
+  font-family:var(--serif);
+  font-weight:500;
+  font-size:clamp(1.5rem,3.5vw,2rem);
+  letter-spacing:-.01em;
+  margin:0 0 .4rem;
+}
+body > p{               /* the intro line under the title */
+  color:var(--ink-soft);
+  font-size:1rem;
+  max-width:46ch;
+  margin:0 0 2.4rem;
+}
+
+/* ---- buttons ------------------------------------------------------------ */
+button{
+  font:inherit;
+  cursor:pointer;
+  border-radius:999px;
+  transition:background .15s, border-color .15s, color .15s, opacity .15s;
+}
+/* primary actions */
+#btn-media, #btn-start, #btn-end, #btn-next{
+  font-weight:600;
+  font-size:.98rem;
+  color:#fff;
+  background:var(--accent);
+  border:1px solid var(--accent);
+  padding:.8rem 1.6rem;
+  box-shadow:var(--shadow);
+}
+#btn-media:hover, #btn-start:hover, #btn-end:hover, #btn-next:hover{
+  background:var(--accent-deep);
+  border-color:var(--accent-deep);
+}
+button:disabled{opacity:.5;cursor:default}
+/* secondary action (gaze) */
+#btn-gaze{
+  font-weight:500;
+  font-size:.9rem;
+  color:var(--accent);
+  background:transparent;
+  border:1px solid var(--accent);
+  padding:.55rem 1.1rem;
+}
+#btn-gaze:hover{background:var(--accent-tint)}
+#btn-gaze:disabled{color:var(--ink-soft);border-color:var(--line);background:transparent}
+/* debug/calibration buttons stay quiet (usually hidden) */
+#btn-hello, #btn-calib-look, #btn-calib-away{
+  font-size:.82rem;color:var(--ink-soft);background:var(--card);
+  border:1px solid var(--line);padding:.4rem .8rem;
+}
+
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+/* ---- setup: enable camera ---------------------------------------------- */
+#conn{margin-bottom:1.5rem}
+#ws-status{
+  display:inline-block;margin-left:.6rem;font-size:.82rem;color:var(--ink-soft);
+}
+#debug-tools{margin-top:1rem}
+#debug-tools #log{
+  background:var(--card);border:1px solid var(--line);border-radius:8px;
+  padding:.6rem;font-size:.78rem;color:var(--ink-soft);max-height:9rem;overflow:auto;
+  white-space:pre-wrap;
+}
+
+/* ---- capture area ------------------------------------------------------- */
+#capture{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:clamp(1.6rem,3vw,2.6rem);
+}
+
+/* self-view video: smaller, framed, tucked to the right */
+#selfview{
+  width:132px;
+  aspect-ratio:4/3;
+  object-fit:cover;
+  border-radius:10px;
+  border:1px solid var(--line);
+  transform:scaleX(-1);
+  float:right;
+  margin:0 0 .8rem 1rem;
+  background:#dfe6ea;
+}
+
+/* mic level row */
+#capture > div:has(#mic){
+  font-size:.8rem;color:var(--ink-soft);
+  display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem;
+}
+#mic{
+  width:120px;height:8px;border:none;border-radius:999px;background:var(--line);
+}
+#mic::-webkit-meter-bar{background:var(--line);border-radius:999px;border:none}
+#mic::-webkit-meter-optimum-value{background:var(--accent);border-radius:999px}
+#mic::-moz-meter-bar{background:var(--accent);border-radius:999px}
+
+/* gaze row */
+#capture > div:has(#btn-gaze){
+  display:flex;align-items:center;gap:.6rem;margin-bottom:.4rem;
+}
+#gaze-live{font-size:.8rem;color:var(--ink-soft)}
+
+#calibration-tools{
+  font-size:.82rem;color:var(--ink-soft);
+  margin-top:.6rem;padding:.6rem .8rem;background:var(--paper);border-radius:8px;
+}
+
+#capture hr{
+  border:none;border-top:1px solid var(--line);margin:1.4rem 0;
+}
+
+/* ---- the interview panel ------------------------------------------------ */
+#interview-panel{clear:both}
+
+/* progress eyebrow: "Question 2 of 4" */
+#question-progress{
+  font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--accent);font-weight:600;margin:0 0 1rem;
+}
+#question-progress:empty{display:none}
+
+/* the question as a calm serif hero. The wrapping <p> holds a stray
+   "Question:" text label before the #question element; font-size:0 on the
+   parent collapses that label and its whitespace, and #question resets to full
+   size. (This is why the parent is zeroed and the child restored.) */
+#interview-panel p:has(#question){
+  font-size:0;
+  margin:0 0 1.8rem;
+}
+#question{
+  font-family:var(--serif);
+  font-weight:400;
+  font-size:clamp(1.6rem,4.4vw,2.3rem);
+  line-height:1.3;
+  letter-spacing:-.01em;
+  color:var(--ink);
+}
+#question:empty{display:none}
+
+/* answer status line (recording / submitted / ready) */
+#answer-status{
+  font-size:.88rem;color:var(--ink-soft);font-weight:500;
+  margin:1.2rem 0;min-height:1.2em;
+}
+#answer-status:empty{display:none}
+
+/* transcript: quiet, secondary. To hide it from participants entirely,
+   change this block to `display:none`. */
+#interview-panel p:has(#transcript){
+  font-size:.82rem;color:var(--ink-soft);
+  background:var(--paper);border:1px solid var(--line);border-radius:8px;
+  padding:.55rem .7rem;margin:1rem 0;line-height:1.5;
+}
+#interview-panel p:has(#transcript):has(#transcript:empty){display:none}
+
+/* ---- feedback: three states ------------------------------------------- */
+#feedback{margin:1.6rem 0}
+#feedback:empty{display:none}
+
+/* generating */
+#feedback.feedback-loading{
+  display:flex;align-items:center;gap:.7rem;
+  color:var(--ink-soft);font-size:.95rem;
+  background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--radius);padding:1.1rem 1.3rem;
+}
+#feedback.feedback-loading p{margin:0}
+.spinner{
+  width:1.15rem;height:1.15rem;flex:none;
+  border:2px solid var(--accent-tint);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* success — the warm coach's note */
+#feedback.feedback-success{
+  background:var(--note);
+  color:var(--note-ink);
+  border:1px solid var(--note-line);
+  border-left:4px solid var(--note-accent);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:clamp(1.3rem,3.2vw,2rem);
+}
+/* each section: an h4 heading (eyebrow) + one or more p */
+#feedback.feedback-success h4{
+  font-family:var(--sans);
+  font-size:.73rem;letter-spacing:.12em;text-transform:uppercase;
+  font-weight:600;color:var(--note-accent);
+  margin:1.4rem 0 .45rem;
+  padding-top:1.2rem;border-top:1px solid var(--note-line);
+}
+#feedback.feedback-success h4:first-child{
+  margin-top:0;padding-top:0;border-top:none;
+}
+#feedback.feedback-success p{
+  margin:0 0 .2rem;font-size:1rem;line-height:1.62;
+}
+/* the first section ("Did you answer the question?") gets a serif emphasis */
+#feedback.feedback-success h4:first-child + p{
+  font-family:var(--serif);font-size:1.12rem;line-height:1.5;
+}
+
+/* failure — calm, not alarming */
+#feedback.feedback-failure{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-left:4px solid var(--warn);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:1.4rem 1.6rem;
+}
+#feedback.feedback-failure h3{
+  margin:0 0 .4rem;font-size:1.05rem;color:var(--ink);
+}
+#feedback.feedback-failure p{
+  margin:0;color:var(--ink-soft);font-size:.96rem;max-width:48ch;
+}
+
+/* next-question button sits below the feedback */
+#btn-next{margin-top:.4rem}
+
+/* stats stays hidden; leave as-is if ever shown */
+#stats{
+  background:var(--paper);border:1px solid var(--line);border-radius:8px;
+  padding:.6rem;font-size:.78rem;white-space:pre-wrap;color:var(--ink-soft);
+}
+
+/* ---- end screen --------------------------------------------------------- */
+#end-screen{
+  text-align:center;
+  padding:clamp(2.5rem,7vw,4rem) 1.5rem;
+}
+#end-screen h2{
+  font-family:var(--serif);font-weight:500;font-size:1.7rem;margin:0 0 .5rem;
+}
+#end-screen p{color:var(--ink-soft);margin:0}
+
+/* ---- responsive + motion ------------------------------------------------ */
+@media (max-width:480px){
+  #selfview{float:none;display:block;margin:0 0 1rem}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+}
