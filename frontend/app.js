@@ -9,9 +9,11 @@ if (debugMode) {
   document.getElementById("ws-status").hidden = false;
 }
 
-const STUDY_PLAN = window.STUDY_PLAN;
-if (!Array.isArray(STUDY_PLAN) || !STUDY_PLAN.length) {
-  throw new Error("STUDY_PLAN is missing or empty");
+const params = new URLSearchParams(window.location.search);
+const group = (params.get("group") || "A").trim().toUpperCase();
+const plan = window.STUDY_PLANS[group] || window.STUDY_PLANS.A;
+if (!Array.isArray(plan) || !plan.length) {
+  throw new Error("Selected study plan is missing or empty");
 }
 
 // https 页面必须用 wss(否则浏览器拦截混合内容, 抛异常会中断整个脚本)
@@ -125,8 +127,8 @@ async function stopRecordingAndTranscribe() {
   form.append("audio", blob, "answer");
   form.append("session_id", sessionId);
   form.append("question_index", String(currentQ));
-  form.append("question", STUDY_PLAN[currentQ].question);
-  form.append("rag", STUDY_PLAN[currentQ].rag);
+  form.append("question", plan[currentQ].question);
+  form.append("rag", plan[currentQ].rag);
   form.append("gaze", JSON.stringify(gazeBuffer));
 
   try {
@@ -391,9 +393,9 @@ function resetQuestionState() {
 
 function askCurrentQuestion() {
   resetQuestionState();
-  const item = STUDY_PLAN[currentQ];
+  const item = plan[currentQ];
   document.getElementById("question-progress").textContent =
-    `Question ${currentQ + 1} of ${STUDY_PLAN.length}`;
+    `Question ${currentQ + 1} of ${plan.length}`;
   document.getElementById("question").textContent = item.question;
   askAndListen(item.question);
   log(`Question ${currentQ + 1} started (RAG ${item.rag})`);
@@ -428,7 +430,7 @@ document.getElementById("btn-end").onclick = async () => {
 
 document.getElementById("btn-next").onclick = () => {
   currentQ += 1;
-  if (currentQ < STUDY_PLAN.length) {
+  if (currentQ < plan.length) {
     askCurrentQuestion();
   } else {
     finishSession();
