@@ -7,6 +7,7 @@ from server.session import (
     assert_no_media,
     build_summary,
     pick_question,
+    save_questionnaire,
     save_summary,
 )
 
@@ -69,6 +70,33 @@ def test_save_summary_one_file_per_question(tmp_path):
     assert p0 != p1
     assert p0.exists() and p1.exists()
     assert len(list(tmp_path.glob("session_sessX_q*.json"))) == 2
+
+
+def test_save_questionnaire_attaches_to_existing_record(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "RESULTS_DIR", tmp_path)
+    transcript, gaze = _sample_inputs()
+    summary = build_summary(
+        "1783895535160",
+        "Q?",
+        transcript,
+        gaze,
+        question_index=0,
+        multimodal=True,
+        rag=True,
+    )
+    summary["feedback"] = {"status": "ok", "text": "Useful feedback"}
+    path = save_summary(summary, results_dir=tmp_path)
+    responses = {
+        "items": {f"q{i}": i for i in range(1, 8)},
+        "comment": "Clear and specific.",
+    }
+
+    saved_path = save_questionnaire("1783895535160", 0, responses)
+
+    saved = json.loads(saved_path.read_text())
+    assert saved_path == path
+    assert saved["feedback"] == summary["feedback"]
+    assert saved["questionnaire"] == responses
 
 
 def test_assert_no_media_raises_when_media_present(tmp_path):

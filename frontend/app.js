@@ -151,18 +151,26 @@ async function stopRecordingAndTranscribe() {
     } else {
       showFeedbackFailure();
     }
+    showQuestionnaire();
   } catch (e) {
     log("Upload failed: " + e);
     showFeedbackFailure();
+    showNextButton();
   }
-  showNextButton();
 }
 
 // ---- L1 Step 3: participant feedback states ----
+function clearQuestionnaire() {
+  const area = document.getElementById("questionnaire");
+  area.hidden = true;
+  area.replaceChildren();
+}
+
 function clearFeedback() {
   const area = document.getElementById("feedback");
   area.className = "";
   area.replaceChildren();
+  clearQuestionnaire();
   document.getElementById("btn-next").hidden = true;
 }
 
@@ -223,6 +231,106 @@ function showFeedbackFailure() {
 
 function showNextButton() {
   document.getElementById("btn-next").hidden = false;
+}
+
+// ---- Post-feedback questionnaire: raw 1–7 responses are stored as entered. ----
+const QUESTIONNAIRE_ITEMS = [
+  "I trust this feedback.",
+  "This feedback seemed accurate to me.",
+  "This feedback was generic — it could have applied to almost anyone's answer.",
+  "This feedback was specific to what I actually said.",
+  "This feedback was useful to me.",
+  "This feedback would help me improve my answer.",
+  "I would act on this feedback in a future interview.",
+];
+
+function showQuestionnaire() {
+  const area = document.getElementById("questionnaire");
+  area.replaceChildren();
+  area.hidden = false;
+
+  const form = document.createElement("form");
+  form.id = "questionnaire-form";
+
+  const instruction = document.createElement("p");
+  instruction.className = "questionnaire-instruction";
+  instruction.textContent =
+    "How much do you agree with each statement about the feedback you just read?  " +
+    "(1 = Strongly disagree, 7 = Strongly agree)";
+  form.appendChild(instruction);
+
+  QUESTIONNAIRE_ITEMS.forEach((item, index) => {
+    const questionNumber = index + 1;
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "likert-item";
+    const legend = document.createElement("legend");
+    legend.textContent = `${questionNumber}. ${item}`;
+    fieldset.appendChild(legend);
+
+    const scale = document.createElement("div");
+    scale.className = "likert-scale";
+    for (let value = 1; value <= 7; value += 1) {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = `q${questionNumber}`;
+      input.value = String(value);
+      input.required = true;
+      label.append(input, String(value));
+      scale.appendChild(label);
+    }
+    fieldset.appendChild(scale);
+    form.appendChild(fieldset);
+  });
+
+  const commentLabel = document.createElement("label");
+  commentLabel.className = "questionnaire-comment";
+  commentLabel.textContent = "Anything else about this feedback? (optional)";
+  const comment = document.createElement("textarea");
+  comment.name = "comment";
+  comment.rows = 3;
+  commentLabel.appendChild(comment);
+  form.appendChild(commentLabel);
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.id = "btn-questionnaire-submit";
+  submit.textContent = "Submit & continue";
+  submit.disabled = true;
+  form.appendChild(submit);
+
+  const status = document.createElement("p");
+  status.className = "questionnaire-status";
+  status.setAttribute("aria-live", "polite");
+  form.appendChild(status);
+
+  form.addEventListener("change", () => {
+    submit.disabled = form.querySelectorAll("input[type=radio]:checked").length !== 7;
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    status.textContent = "Saving your responses…";
+    const responses = new FormData(form);
+    responses.append("session_id", sessionId);
+    responses.append("question_index", String(currentQ));
+    try {
+      const response = await fetch("/questionnaire", { method: "POST", body: responses });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || `HTTP ${response.status}`);
+      }
+      log("Questionnaire saved: " + data.saved_to);
+      clearQuestionnaire();
+      showNextButton();
+    } catch (error) {
+      log("Questionnaire save failed: " + error);
+      status.textContent = "Your responses could not be saved. Please try again.";
+      submit.disabled = false;
+    }
+  });
+
+  area.appendChild(form);
 }
 
 // 录音/转录由「开始/结束」按钮驱动（见 Step 5）

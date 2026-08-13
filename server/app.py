@@ -3,7 +3,7 @@ from pathlib import Path
 import json as _json
 import time
 
-from fastapi import FastAPI, Form, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 
@@ -11,7 +11,13 @@ from server import config
 from server.asr import AudioChunk, transcribe
 from server.feedback import generate_feedback
 from server.metrics import GazeSample
-from server.session import assert_no_media, build_summary, pick_question, save_summary
+from server.session import (
+    assert_no_media,
+    build_summary,
+    pick_question,
+    save_questionnaire,
+    save_summary,
+)
 
 app = FastAPI(title="L0 Foundation")
 
@@ -108,6 +114,38 @@ async def transcribe_endpoint(
     path = save_summary(summary)  # 无论 ok/failed 都落库，让被试能继续
     assert_no_media()  # 落库后立即自检红线（反馈是派生文本，不碰红线）
     return {"summary": summary, "saved_to": path.name}
+
+
+@app.post("/questionnaire")
+async def questionnaire_endpoint(
+    session_id: str = Form(...),
+    question_index: int = Form(...),
+    q1: int = Form(..., ge=1, le=7),
+    q2: int = Form(..., ge=1, le=7),
+    q3: int = Form(..., ge=1, le=7),
+    q4: int = Form(..., ge=1, le=7),
+    q5: int = Form(..., ge=1, le=7),
+    q6: int = Form(..., ge=1, le=7),
+    q7: int = Form(..., ge=1, le=7),
+    comment: str = Form(""),
+):
+    responses = {
+        "items": {
+            "q1": q1,
+            "q2": q2,
+            "q3": q3,
+            "q4": q4,
+            "q5": q5,
+            "q6": q6,
+            "q7": q7,
+        },
+        "comment": comment,
+    }
+    try:
+        path = save_questionnaire(session_id, question_index, responses)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"saved_to": path.name}
 
 
 # 静态前端挂在最后，避免盖过 API 路由

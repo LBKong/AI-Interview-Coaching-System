@@ -60,6 +60,22 @@ def save_summary(summary: dict, results_dir: Path | None = None) -> Path:
     return path
 
 
+def save_questionnaire(
+    session_id: str,
+    question_index: int,
+    responses: dict,
+) -> Path:
+    """把问卷追加到同一题已有的结果记录；反馈记录必须先存在。"""
+    path = Path(config.RESULTS_DIR) / f"session_{session_id}_q{question_index}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"Question record does not exist: {path.name}")
+    record = json.loads(path.read_text())
+    record["questionnaire"] = responses
+    path.write_text(json.dumps(record, ensure_ascii=False, indent=2))
+    assert_no_media()
+    return path
+
+
 def assert_no_media(results_dir: Path | None = None) -> None:
     """红线自检：落库目录里绝不能出现任何音视频文件。"""
     results_dir = Path(results_dir) if results_dir else config.RESULTS_DIR

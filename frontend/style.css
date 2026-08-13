@@ -287,6 +287,34 @@ button:disabled{opacity:.5;cursor:default}
 /* next-question button sits below the feedback */
 #btn-next{margin-top:.4rem}
 
+/* ---- post-feedback questionnaire --------------------------------------- */
+#questionnaire{
+  margin:1.2rem 0 1.6rem;padding:clamp(1.2rem,3vw,1.7rem);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);
+}
+#questionnaire[hidden]{display:none}
+.questionnaire-instruction{margin:0 0 1.2rem;font-weight:600;color:var(--ink)}
+.likert-item{border:0;border-top:1px solid var(--line);margin:0;padding:1rem 0}
+.likert-item legend{font-size:.95rem;font-weight:500;padding:0;line-height:1.45}
+.likert-scale{display:grid;grid-template-columns:repeat(7,1fr);gap:.35rem;margin-top:.7rem}
+.likert-scale label{
+  display:flex;flex-direction:column;align-items:center;gap:.25rem;
+  color:var(--ink-soft);font-size:.82rem;cursor:pointer;
+}
+.likert-scale input{accent-color:var(--accent);width:1rem;height:1rem}
+.questionnaire-comment{display:block;margin:1rem 0;color:var(--ink);font-weight:500}
+.questionnaire-comment textarea{
+  display:block;width:100%;margin-top:.45rem;padding:.7rem;border:1px solid var(--line);
+  border-radius:8px;font:inherit;color:var(--ink);resize:vertical;
+}
+#btn-questionnaire-submit{
+  font-weight:600;color:#fff;background:var(--accent);border:1px solid var(--accent);
+  padding:.75rem 1.35rem;
+}
+#btn-questionnaire-submit:hover{background:var(--accent-deep);border-color:var(--accent-deep)}
+.questionnaire-status{min-height:1.2em;margin:.6rem 0 0;color:var(--ink-soft);font-size:.88rem}
+
 /* stats stays hidden; leave as-is if ever shown */
 #stats{
   background:var(--paper);border:1px solid var(--line);border-radius:8px;
