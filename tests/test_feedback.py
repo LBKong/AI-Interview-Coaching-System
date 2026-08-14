@@ -6,10 +6,10 @@ Q = "Describe a time you had a conflict with a teammate and how you handled it."
 A = "One teammate wasn't doing their part. I ended up doing most of the work myself."
 
 
-# ---- build_prompt：两个消融门控一眼可测（纯函数，不联网）----
+# ---- build_prompt: both ablation gates are directly testable (pure function, no network) ----
 
 def test_build_prompt_rag_off_has_no_knowledge_block():
-    # RQ2a：知识空（RAG 关）→ 无「背景参考」段
+    # RQ2a: no knowledge (RAG off) → no background-reference section
     p = feedback.build_prompt(Q, A, [])
     assert "reference material" not in p.lower()
 
@@ -22,7 +22,7 @@ def test_build_prompt_rag_on_embeds_knowledge():
 
 
 def test_build_prompt_multimodal_off_has_no_delivery_block():
-    # RQ2b：gaze/wpm 都 None → 无 delivery 素材
+    # RQ2b: gaze/wpm both None → no delivery evidence
     p = feedback.build_prompt(Q, A, [], gaze_ratio=None, avg_wpm=None)
     assert "words per minute" not in p.lower()
     assert "looking at the camera" not in p.lower()
@@ -35,41 +35,41 @@ def test_build_prompt_multimodal_on_embeds_nonverbal():
 
 
 def test_build_prompt_skips_zero_wpm():
-    # 坑③：wpm=0（<2 词的返回值）不写语速；凝视仍在
+    # Pitfall 3: wpm=0 (returned for <2 words) omits speaking rate; gaze remains
     p = feedback.build_prompt(Q, A, [], gaze_ratio=0.42, avg_wpm=0.0)
     assert "words per minute" not in p.lower()
     assert "42%" in p
 
 
-# ---- 系统指令：五段结构 + 无写死语速阈值 ----
+# ---- System instruction: five-section structure + no hard-coded speaking-rate threshold ----
 
 def test_system_instruction_declares_all_five_sections():
-    si = feedback._SYSTEM_INSTRUCTION.format(language="English")  # 顺带验坑④无裸大括号
+    si = feedback._SYSTEM_INSTRUCTION.format(language="English")  # Also verify pitfall 4: no bare braces
     for title in ["Did you answer the question?", "What worked",
                   "What to improve", "Delivery", "Next time"]:
         assert title in si
 
 
 def test_system_instruction_has_no_speaking_rate_thresholds():
-    # 坑⑤：提示词里不能有写死的语速阈值。
-    # 注意：报告篇幅约束"150 to 220 words"是词数、不是语速，故不禁 150/220。
-    # 只禁清单点名的坏例阈值(130-160/<110/>170)与语速单位——阈值离不开单位。
+    # Pitfall 5: the prompt must not contain a hard-coded speaking-rate threshold.
+    # Note: the report-length constraint "150 to 220 words" is a word count, not a speaking rate, so 150/220 are allowed.
+    # Ban only the listed bad example thresholds (130-160/<110/>170) and speaking-rate units—a threshold requires a unit.
     si = feedback._SYSTEM_INSTRUCTION.lower()
     for n in ["110", "130", "160", "170", "180"]:
         assert n not in si, f"疑似写死语速阈值: {n}"
-    assert "words per minute" not in si  # 具体语速数值只在 delivery 块(用户提示)里出现
+    assert "words per minute" not in si  # Specific speaking-rate values appear only in the delivery block (user prompt)
     assert "wpm" not in si
 
 
-# ---- generate_feedback：入口穿两个开关（mock 掉网络）----
+# ---- generate_feedback: both switches pass through the entry point (network mocked) ----
 
 def test_generate_feedback_empty_transcript_short_circuits(monkeypatch):
     calls = {"n": 0}
     monkeypatch.setattr(feedback, "_generate", lambda p: calls.__setitem__("n", calls["n"] + 1))
     text, mv = feedback.generate_feedback({"question": Q, "transcript": "   "})
-    assert calls["n"] == 0                       # 空转录不调 LLM（省额度）
+    assert calls["n"] == 0                       # Empty transcript does not call the LLM (saves quota)
     assert "no feedback" in text.lower() or "no answer" in text.lower()
-    assert mv == ""                              # Task4：没调模型 → 不返回模型版本
+    assert mv == ""                              # Task 4: no model call → no model version returned
 
 
 def test_generate_feedback_returns_model_version(monkeypatch):
@@ -80,7 +80,7 @@ def test_generate_feedback_returns_model_version(monkeypatch):
 
 
 def test_generate_feedback_rag_off_prompt_has_no_knowledge(monkeypatch):
-    # 端到端 mock：RAG 关（retrieve 返回 []）→ 传给 _generate 的 prompt 无知识段
+    # End-to-end mock: RAG off (retrieve returns []) → prompt passed to _generate has no knowledge section
     captured = {}
     monkeypatch.setattr(feedback.rag, "retrieve", lambda *a, **k: [])
 
@@ -92,22 +92,22 @@ def test_generate_feedback_rag_off_prompt_has_no_knowledge(monkeypatch):
     feedback.generate_feedback({"question": Q, "transcript": A,
                                 "avg_wpm": 185.0, "gaze_on_camera_ratio": 0.42})
     assert "reference material" not in captured["prompt"].lower()
-    # 结构不变的旁证：多模态开着时 delivery 素材仍在
+    # Corroborate invariant structure: delivery evidence remains when multimodal is on
     assert "words per minute" in captured["prompt"].lower()
 
 
 def test_get_client_raises_without_key(monkeypatch):
     monkeypatch.setattr(config, "GEMINI_API_KEY", "")
-    feedback._client = None  # 清懒加载缓存
+    feedback._client = None  # Clear lazy-load cache
     with pytest.raises(RuntimeError):
         feedback._get_client()
-    feedback._client = None  # 复原，避免影响其他测试
+    feedback._client = None  # Restore to avoid affecting other tests
 
 
-# ---- 加固：空/截断响应必须抛异常，别把坏数据当真反馈（Task 1/3/4）----
+# ---- Hardening: empty/truncated responses must raise; never treat bad data as real feedback (Tasks 1/3/4) ----
 
 class _FakeResp:
-    """假 Gemini 响应，用于离线测 _generate 的校验逻辑。"""
+    """Fake Gemini response for offline testing of _generate validation logic."""
     def __init__(self, text, finish_reason, model_version="gemini-3.5-flash"):
         self.text = text
         self.model_version = model_version
@@ -140,7 +140,7 @@ def test_generate_raises_on_truncated_response(monkeypatch):
 
 
 def test_generate_accepts_normal_response(monkeypatch):
-    # 防止新校验过严：正常 STOP + 有文本要能干净返回
+    # Prevent over-strict validation: normal STOP + text must return cleanly
     from google.genai import types
     _mock_client(monkeypatch, _FakeResp(text="Full feedback report.",
                                         finish_reason=types.FinishReason.STOP,
@@ -153,7 +153,7 @@ def test_generate_accepts_normal_response(monkeypatch):
 def test_knowledge_block_separates_chunks():
     chunks = ["[Question: A]\n[Common pitfall] X", "[Question: B]\n[Good answer] Y"]
     p = feedback.build_prompt(Q, A, chunks)
-    assert "[Common pitfall] X\n\n- [Question: B]" in p  # 块间空行分隔
+    assert "[Common pitfall] X\n\n- [Question: B]" in p  # Blank-line separation between chunks
 
 
 def test_empty_transcript_returns_no_model_version():
@@ -161,7 +161,7 @@ def test_empty_transcript_returns_no_model_version():
     assert mv == ""
 
 
-# ---- 重试：只重试瞬时故障，不重试空/截断（Task 3）----
+# ---- Retry: retry transient failures only, not empty/truncated responses (Task 3) ----
 
 def test_generate_retries_on_transient_error(monkeypatch):
     from google.genai import errors
@@ -175,7 +175,7 @@ def test_generate_retries_on_transient_error(monkeypatch):
         return ("ok text", "gemini-3.6-flash")
 
     monkeypatch.setattr(feedback, "_generate", fake_generate)
-    monkeypatch.setattr(feedback.time, "sleep", lambda s: None)  # 别真睡 2s+4s
+    monkeypatch.setattr(feedback.time, "sleep", lambda s: None)  # Do not actually sleep for 2s+4s
     text, mv = feedback._generate_with_retry("prompt")
     assert calls["n"] == 3
     assert text == "ok text"
@@ -186,10 +186,10 @@ def test_generate_does_not_retry_on_empty_response(monkeypatch):
 
     def fake_generate(prompt):
         calls["n"] += 1
-        raise RuntimeError("Gemini 未返回可用文本")  # _generate 对空响应抛的错
+        raise RuntimeError("Gemini 未返回可用文本")  # Error raised by _generate for an empty response
 
     monkeypatch.setattr(feedback, "_generate", fake_generate)
     monkeypatch.setattr(feedback.time, "sleep", lambda s: None)
     with pytest.raises(RuntimeError):
         feedback._generate_with_retry("prompt")
-    assert calls["n"] == 1  # 只调一次，不重试
+    assert calls["n"] == 1  # One call only; no retry

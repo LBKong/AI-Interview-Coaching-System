@@ -1,4 +1,4 @@
-"""会话：出题 + 汇总统计量 + 落库。"""
+"""Session handling: ask questions, aggregate metrics, and persist records."""
 from __future__ import annotations
 
 import json
@@ -14,7 +14,7 @@ _MEDIA_EXTS = {".wav", ".mp3", ".webm", ".mp4", ".mov", ".m4a", ".ogg", ".avi"}
 
 
 def pick_question(index: int | None = None) -> str:
-    """从手写题库选一题。index 给定则确定性返回（测试/复现用）。"""
+    """Select a question from the hand-written bank. An index makes selection deterministic for testing/reproduction."""
     if index is not None:
         return config.QUESTIONS[index]
     return random.choice(config.QUESTIONS)
@@ -30,10 +30,10 @@ def build_summary(
     multimodal: bool,
     rag: bool,
 ) -> dict:
-    """汇总一题的统计量。multimodal=False → 只留转录（凝视+语速都关）。
+    """Aggregate metrics for one question. multimodal=False → retain only the transcript (disable both gaze and speaking rate).
 
-    question_index：本 session 内第几题。研究是"一题一份反馈"，同一 session 多题，
-    靠它区分落库文件（见 save_summary），否则后一题会覆盖前一题。
+    question_index identifies the question within this session. The study generates one feedback
+    report per question, so it distinguishes persisted files (see save_summary); otherwise a later question would overwrite an earlier one.
     """
     summary = {
         "session_id": session_id,
@@ -51,10 +51,10 @@ def build_summary(
 
 
 def save_summary(summary: dict, results_dir: Path | None = None) -> Path:
-    """把统计量写成 JSON。只存统计量，绝不存音视频。"""
+    """Write metrics as JSON. Store metrics only; never store audio or video."""
     results_dir = Path(results_dir) if results_dir else config.RESULTS_DIR
     results_dir.mkdir(parents=True, exist_ok=True)
-    # 一题一文件：session_id + question_index，避免同 session 后一题覆盖前一题
+    # One file per question: session_id + question_index prevents a later question in the same session from overwriting an earlier one
     path = results_dir / f"session_{summary['session_id']}_q{summary['question_index']}.json"
     path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
     return path
@@ -65,7 +65,7 @@ def save_questionnaire(
     question_index: int,
     responses: dict,
 ) -> Path:
-    """把问卷追加到同一题已有的结果记录；反馈记录必须先存在。"""
+    """Attach questionnaire responses to the existing record for the same question; the feedback record must already exist."""
     path = Path(config.RESULTS_DIR) / f"session_{session_id}_q{question_index}.json"
     if not path.exists():
         raise FileNotFoundError(f"Question record does not exist: {path.name}")
@@ -77,7 +77,7 @@ def save_questionnaire(
 
 
 def assert_no_media(results_dir: Path | None = None) -> None:
-    """红线自检：落库目录里绝不能出现任何音视频文件。"""
+    """Hard-line safety check: the persistence directory must never contain audio or video files."""
     results_dir = Path(results_dir) if results_dir else config.RESULTS_DIR
     if not results_dir.exists():
         return

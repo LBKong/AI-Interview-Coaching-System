@@ -1,5 +1,5 @@
-"""ASR：L0 用批处理，但接口按流式设计（接收 AudioChunk 迭代器）。
-L1/L2 换流式时只改本文件内部（边收 chunk 边增量转录），调用方接口不变。
+"""ASR: L0 uses batch processing, but the interface is stream-oriented (accepting an AudioChunk iterator).
+When L1/L2 switch to streaming, only this file's internals change (incremental transcription as chunks arrive); the caller interface remains unchanged.
 """
 from __future__ import annotations
 
@@ -13,22 +13,22 @@ import numpy as np
 
 from server import config
 
-SAMPLE_RATE = 16000  # whisper 期望 16kHz 单声道
+SAMPLE_RATE = 16000  # Whisper expects 16 kHz mono audio
 
-_model = None  # 懒加载，避免测试/导入时下载模型
+_model = None  # Lazy-load to avoid downloading the model during tests/imports
 
 
 @dataclass
 class AudioChunk:
-    data: bytes                 # L0: 整段编码音频(webm/opus)；L1/L2 流式时为小段
-    t_start: float = 0.0        # 该块在本轮回答里的起始秒（为流式对齐预留）
+    data: bytes                 # L0: the complete encoded audio (webm/opus); small segments when L1/L2 stream
+    t_start: float = 0.0        # This chunk's start time in the current answer, reserved for stream alignment
     sample_rate: int | None = None
 
 
 @dataclass
 class Word:
     text: str
-    t_start: float              # 词级时间戳（算 WPM 用）
+    t_start: float              # Word-level timestamp (used to calculate WPM)
     t_end: float
 
 
@@ -51,10 +51,11 @@ def _get_model():
 
 
 def _decode_to_pcm(audio_bytes: bytes, sample_rate: int = SAMPLE_RATE) -> np.ndarray:
-    """用 ffmpeg 子进程把任意容器(webm/opus 等)解码成 16kHz 单声道 float32 PCM。
-    比 PyAV 从 BytesIO 直读更稳。注意：浏览器 MediaRecorder 的 webm 不可 seek，
-    必须先落到临时文件让 ffmpeg 读文件路径（从 pipe:0 读会因无法 seek 头部而失败）。
-    临时音频文件仅用于解码，函数返回前立即删除——不落库。
+    """Decode any container (webm/opus, etc.) to 16 kHz mono float32 PCM with an ffmpeg subprocess.
+    This is more reliable than PyAV reading directly from BytesIO. Browser MediaRecorder webm is
+    not seekable, so it must first be written to a temporary file for ffmpeg to read by path
+    (reading from pipe:0 fails because ffmpeg cannot seek the header). The temporary audio file
+    is used only for decoding and deleted immediately before the function returns—never persisted.
     """
     tmp = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
     try:
@@ -68,12 +69,12 @@ def _decode_to_pcm(audio_bytes: bytes, sample_rate: int = SAMPLE_RATE) -> np.nda
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"ffmpeg 解码失败: {e.stderr.decode('utf-8', 'ignore')[-500:]}") from e
     finally:
-        os.unlink(tmp.name)  # 立即删除临时音频，绝不落库
+        os.unlink(tmp.name)  # Delete temporary audio immediately; never persist it
     return np.frombuffer(proc.stdout, dtype=np.float32)
 
 
 def transcribe(chunks: Iterable[AudioChunk]) -> Transcript:
-    """L0 实现：攒齐所有 chunk → ffmpeg 解码 → 一次性喂给 faster-whisper → 带词级时间戳的转录。"""
+    """L0 implementation: collect all chunks → decode with ffmpeg → send once to faster-whisper → transcript with word-level timestamps."""
     audio_bytes = b"".join(c.data for c in chunks)
     pcm = _decode_to_pcm(audio_bytes)
     if pcm.size == 0:
@@ -87,7 +88,7 @@ def transcribe(chunks: Iterable[AudioChunk]) -> Transcript:
     words: list[Word] = []
     for seg in segments:
         for w in (seg.words or []):
-            # 转成原生 float：faster-whisper 可能返回 np.float64，避免 JSON 序列化出错
+            # Convert to native float: faster-whisper may return np.float64, which can break JSON serialization
             words.append(Word(text=w.word.strip(), t_start=float(w.start), t_end=float(w.end)))
     text = " ".join(w.text for w in words)
     return Transcript(text=text, words=words)

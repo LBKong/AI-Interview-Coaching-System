@@ -1,12 +1,12 @@
-"""L1 Step 2 · LLM 生成反馈：题目 + 回答 + (RAG 知识) + (非语言信号) → Gemini → 五段式教练报告。
+"""L1 Step 2 · LLM feedback generation: question + answer + (RAG knowledge) + (nonverbal signals) → Gemini → five-section coaching report.
 
-设计：
-- 两个消融开关从这里穿过（RAG: rag.retrieve 关掉返回 []；多模态: summary 有没有 wpm/gaze 字段）
-- 报告结构在 RAG 开/关下完全一致，只有内容依据变（否则 RQ2a 被污染）
-- 领域知识进知识库、反馈风格进提示词（见设计决定③）
-- Gemini 用新版 google-genai SDK；客户端懒加载
-- 职责单一：只生成文本，不落库、不改 summary
-配套设计文档：REPORT_STRUCTURE.md
+Design:
+- Both ablation switches pass through here (RAG: rag.retrieve returns [] when disabled; multimodal: whether summary has wpm/gaze fields)
+- Report structure is identical with RAG on/off; only the evidence basis changes (otherwise RQ2a is confounded)
+- Domain knowledge belongs in the knowledge base; feedback style belongs in the prompt (see design decision 3)
+- Gemini uses the current google-genai SDK; the client is lazy-loaded
+- Single responsibility: generate text only; do not persist data or modify summary
+Companion design document: REPORT_STRUCTURE.md
 """
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ import time
 
 from server import config, rag
 
-# 教练人设 + 五段结构 + 硬规则 + "ASR 转录"声明 + 输出要求。
-# ⚠ 反馈"风格"全在这里、不受任何消融开关影响（设计决定③）——RAG 开/关只改"内容依据"，不改结构。
-# ⚠ .format(language=...) 要求：除 {language} 外，全文不得有别的裸大括号（坑④）。
-# ⚠ 不写死任何语速阈值（坑⑤）——语速没有普适标准，只当情境信息交给模型。
+# Coach persona + five-section structure + hard rules + "ASR transcript" disclosure + output requirements.
+# ⚠ All feedback "style" lives here and is unaffected by ablation switches (design decision 3)—RAG on/off changes only the evidence basis, not structure.
+# ⚠ .format(language=...) requirement: no bare braces may appear anywhere except {language} (pitfall 4).
+# ⚠ Do not hard-code any speaking-rate threshold (pitfall 5)—there is no universal standard, so pass rate only as contextual information.
 _SYSTEM_INSTRUCTION = """You are an experienced interview coach giving written feedback on one answer to one interview question. This feedback is the only thing the candidate receives, so it must be honest, specific, and easy to act on.
 
 The answer you are given is an automatic speech-to-text transcript of the candidate speaking aloud. Judge only what they said. Never comment on transcription quality, punctuation, capitalisation, or recognition errors — those are artefacts of the tool, not the candidate's behaviour.
@@ -48,14 +48,14 @@ Hard rules:
 
 
 def _knowledge_block(knowledge: list[str]) -> str:
-    """RAG 命中的知识块 → 「背景参考」段。空列表（RAG 关/未命中）→ 空串。
+    """Convert RAG knowledge hits into a background-reference section. Empty list (RAG off/no hit) → empty string.
 
-    只用来 ground 反馈；提示模型别逐字引用、别说"我被给了笔记"。
+    Use them only to ground feedback; instruct the model not to quote verbatim or say "I was given notes".
     """
     if not knowledge:
         return ""
-    # 用空行分隔：每个块自身含换行（如 "[Question: X]\n[Common pitfall] Y"），
-    # 单个 \n 拼接会让下一块的首行没有项目符号、块边界对模型变模糊。
+    # Separate with blank lines: each chunk contains its own newline (for example, "[Question: X]\n[Common pitfall] Y").
+    # Joining with one \n leaves the next chunk's first line without a bullet and makes chunk boundaries ambiguous to the model.
     joined = "\n\n".join(f"- {k}" for k in knowledge)
     return (
         "\n\nBackground reference material (use it to ground your feedback; "
@@ -65,15 +65,15 @@ def _knowledge_block(knowledge: list[str]) -> str:
 
 
 def _delivery_block(gaze_ratio: float | None, avg_wpm: float | None) -> str:
-    """非语言信号 → delivery 素材。多模态关（两个都缺）→ 空串。
+    """Convert nonverbal signals into delivery evidence. Multimodal off (both absent) → empty string.
 
-    ⚠ avg_wpm 为真才写（0.0 是 <2 词时的返回值，要跳过 —— 坑③）。
-    ⚠ 不写死"多少算正常"的阈值（坑⑤）——只给数值 + 情境，判断交给模型。
+    ⚠ Include avg_wpm only when truthy (0.0 is returned for <2 words and must be skipped—pitfall 3).
+    ⚠ Do not hard-code a "normal" threshold (pitfall 5)—provide only the value + context and let the model judge.
     """
     lines: list[str] = []
-    if avg_wpm:  # 0.0 / None 都跳过（坑③）
+    if avg_wpm:  # Skip both 0.0 and None (pitfall 3)
         lines.append(f"- Speaking rate: about {round(avg_wpm)} words per minute.")
-    if gaze_ratio is not None:  # 0.0 有意义（完全没看镜头），用 is not None
+    if gaze_ratio is not None:  # 0.0 is meaningful (never looked at camera), so use is not None
         lines.append(f"- Looking at the camera: about {round(gaze_ratio * 100)}% of the answer.")
     if not lines:
         return ""
@@ -93,7 +93,7 @@ def build_prompt(
     gaze_ratio: float | None = None,
     avg_wpm: float | None = None,
 ) -> str:
-    """拼用户提示（纯函数，两个门控一眼可测：知识块 = RAG，delivery 块 = 多模态）。"""
+    """Build the user prompt (pure function; both gates are directly testable: knowledge chunks = RAG, delivery block = multimodal)."""
     prompt = (
         f"Question: {question}\n\n"
         f"Answer (automatic speech-to-text transcript): {answer}"
@@ -108,7 +108,7 @@ _client = None
 
 
 def _get_client():
-    """懒加载 Gemini 客户端。缺 key 给明确报错，而非 SDK 原始异常。import 时不建连接。"""
+    """Lazy-load the Gemini client. Missing keys produce a clear error instead of a raw SDK exception. Do not connect at import time."""
     global _client
     if _client is None:
         if not config.GEMINI_API_KEY:
@@ -119,7 +119,7 @@ def _get_client():
 
 
 def _generate(prompt: str) -> tuple[str, str]:
-    """调 Gemini 生成，返回 (反馈文本, modelVersion)。唯一碰网络的地方。"""
+    """Call Gemini generation and return (feedback text, modelVersion). This is the only network-touching function."""
     from google.genai import types
 
     client = _get_client()
@@ -133,28 +133,28 @@ def _generate(prompt: str) -> tuple[str, str]:
     )
     text = (resp.text or "").strip()
     finish = resp.candidates[0].finish_reason if resp.candidates else None
-    # 远程无人监督：宁可抛异常（L1 Step 3 能捕获兜底），也不能把空/截断的报告当真反馈返回。
-    # 否则被试会对一份空白或半截报告打分，坏数据混进研究分析而没人察觉。
+    # Unsupervised remote use: raise an exception (L1 Step 3 can catch and handle it) rather than return an empty/truncated report as real feedback.
+    # Otherwise participants would rate a blank or partial report, silently contaminating the research analysis with bad data.
     if not text:
-        # 被安全过滤拦截或无候选 → resp.text 为 None
+        # Blocked by safety filters or no candidate → resp.text is None
         raise RuntimeError(f"Gemini 未返回可用文本 (finish_reason={finish})")
     if finish is not None and finish != types.FinishReason.STOP:
-        # 非 STOP（如 MAX_TOKENS：3.x 思考 token 也占输出预算，可能把可见回答截断）
+        # Non-STOP (for example MAX_TOKENS: 3.x thinking tokens also consume the output budget and may truncate the visible answer)
         raise RuntimeError(f"Gemini 响应不完整、疑似被截断 (finish_reason={finish})")
-    # 设计决定⑤：存确切模型版本（论文方法论要追溯）。SDK 字段是 model_version。
-    # 回退时标 (unconfirmed)：别把"配置的模型"冒充成"实际服务的模型"——存这个字段就是为了抓这种错配。
+    # Design decision 5: store the exact model version (required for thesis-method traceability). The SDK field is model_version.
+    # Mark fallback as (unconfirmed): never pass the "configured model" off as the "actually served model"—this field exists to catch that mismatch.
     served = getattr(resp, "model_version", None)
     model_version = served or f"{config.GEMINI_MODEL} (unconfirmed)"
     return text, model_version
 
 
-# 瞬时故障（5xx/429/网络超时）才重试；空/截断（_generate 抛的 RuntimeError）不重试——
-# 安全拦截不会因重试改变，截断是 token 预算问题会复发。异常类型见 google.genai.errors。
+# Retry only transient failures (5xx/429/network timeouts); do not retry empty/truncated responses (_generate RuntimeError)—
+# retries do not change safety blocks, and token-budget truncation will recur. See google.genai.errors for exception types.
 _TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
 
 def _generate_with_retry(prompt: str, *, backoffs: tuple[int, ...] = (2, 4)) -> tuple[str, str]:
-    """对 _generate 加薄重试层。最多 3 次（首次 + 2 次重试），退避 2s、4s（总墙钟 ~30s 内）。"""
+    """Add a thin retry layer around _generate. At most 3 attempts (initial + 2 retries), backing off 2s and 4s (total wall time within ~30s)."""
     from google.genai import errors
     import httpx
 
@@ -163,15 +163,15 @@ def _generate_with_retry(prompt: str, *, backoffs: tuple[int, ...] = (2, 4)) -> 
         try:
             return _generate(prompt)
         except errors.APIError as e:
-            # 只重试瞬时状态码；其余（如 400/401/403）立即上抛
+            # Retry transient status codes only; immediately re-raise others (such as 400/401/403)
             if getattr(e, "code", None) not in _TRANSIENT_STATUS or attempt == max_attempts - 1:
                 raise
-        except httpx.TransportError:  # 网络超时/连接错误：瞬时
+        except httpx.TransportError:  # Network timeout/connection error: transient
             if attempt == max_attempts - 1:
                 raise
-        # 注意：_generate 抛的 RuntimeError（空/截断）不在上面两个 except 内 → 直接上抛，不重试
+        # Note: RuntimeError from _generate (empty/truncated) is outside the two except clauses above → re-raise directly without retrying
         time.sleep(backoffs[attempt])
-    raise RuntimeError("unreachable")  # 逻辑上到不了
+    raise RuntimeError("unreachable")  # Logically unreachable
 
 
 def generate_feedback(
@@ -181,29 +181,29 @@ def generate_feedback(
     rag_enabled: bool | None = None,
     return_chunks: bool = False,
 ):
-    """入口：吃 summary → (反馈文本, modelVersion)[, 检索到的知识块]。两个消融开关在这里自然生效。
+    """Entry point: consume summary → (feedback text, modelVersion)[, retrieved knowledge chunks]. Both ablation switches naturally apply here.
 
-    - RAG（RQ2a）：knowledge 来自 rag.retrieve()，per-question 用 rag_enabled 覆盖，None 时回退全局。
-    - 多模态（RQ2b）：gaze/wpm 只在 summary 带这两个字段时才进提示词（build_summary 关掉时本就不写）。
-    两个开关都只有单一真源，feedback.py 不再重读全局 flag（设计决定①②）。
+    - RAG (RQ2a): knowledge comes from rag.retrieve(); rag_enabled overrides per question and None falls back to global.
+    - Multimodal (RQ2b): gaze/wpm enter the prompt only when summary contains those fields (build_summary omits them when disabled).
+    Both switches have one source of truth; feedback.py does not reread global flags (design decisions 1 and 2).
 
-    return_chunks=True → 额外返回检索到的知识块列表，供调用方拿 knowledge_chunks_used，
-    避免 /transcribe 里再检索一遍（双重检索既浪费又可能不一致）。
+    return_chunks=True → also return the retrieved knowledge-chunk list so the caller can obtain knowledge_chunks_used,
+    avoiding a second retrieval in /transcribe (double retrieval is wasteful and may be inconsistent).
     """
     question = summary.get("question", "")
     answer = (summary.get("transcript") or "").strip()
-    if not answer:  # 空转录：不调 LLM，省额度
-        # 这条路径没调过任何模型 → 模型版本返回空串；否则落库后与"真跑过模型"的记录无法区分。
+    if not answer:  # Empty transcript: do not call the LLM, saving quota
+        # This path called no model → return an empty model version; otherwise persisted records cannot distinguish it from a real model call.
         msg = ("(No answer was transcribed, so no feedback could be generated.)", "")
         return (*msg, []) if return_chunks else msg
 
-    knowledge = rag.retrieve(question, answer, k=k, enabled=rag_enabled)  # [] 当 RAG 关（RQ2a）
+    knowledge = rag.retrieve(question, answer, k=k, enabled=rag_enabled)  # [] when RAG is off (RQ2a)
     prompt = build_prompt(
         question,
         answer,
         knowledge,
-        gaze_ratio=summary.get("gaze_on_camera_ratio"),  # None 当多模态关（RQ2b）
+        gaze_ratio=summary.get("gaze_on_camera_ratio"),  # None when multimodal is off (RQ2b)
         avg_wpm=summary.get("avg_wpm"),
     )
-    text, model_version = _generate_with_retry(prompt)  # 瞬时故障自动重试
+    text, model_version = _generate_with_retry(prompt)  # Automatically retry transient failures
     return (text, model_version, knowledge) if return_chunks else (text, model_version)

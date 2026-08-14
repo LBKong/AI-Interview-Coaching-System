@@ -1,15 +1,18 @@
-"""LLM-as-Judge（离线批处理）：读 results/*.json 里已存的反馈，按五维 rubric(1–5) 打分。
+"""LLM-as-Judge (offline batch): read stored feedback from results/*.json and score it on a five-dimension rubric (1–5).
 
-⚠ 这是离线评估工具，不接入 /transcribe、不参与被试 session。研究数据采集完后，
-   在 results/*.json 上批量跑，分数写到独立的 scores/ 层，绝不回写 results。
+⚠ This is an offline evaluation tool. It is not connected to /transcribe and does not participate
+   in participant sessions. After research data collection, run it in batch over results/*.json;
+   write scores to a separate scores/ layer and never back into results.
 
-设计（仿 feedback.py）：
-- 客户端懒加载；build_judge_prompt 纯函数；中文注释。
-- 裁判对实验条件【盲】：build_judge_prompt 只含 题目+回答+被评反馈，不含 flags/知识块/指标/
-  "rag"/"multimodal"（RAG 开/关的反馈结构本就一致，裁判天然分不出，正是要的效果）。
-- 裁判 = 生成模型（gemini-3.6-flash，原因见 config.py）：self-preference 由专家校准检验，
-  故 judge_model_version 每条都记录、跑完要核对一致性。
-- 防御式解析：坏 JSON / 缺维度 / 分数越界一律【抛错】，绝不填默认分（解析失败=裁判失败，必须可见）。
+Design (modelled on feedback.py):
+- Lazy-load the client; build_judge_prompt is pure; comments are in English.
+- The judge is BLIND to experimental condition: build_judge_prompt contains only question + answer + evaluated feedback,
+  with no flags/knowledge chunks/metrics/"rag"/"multimodal" (feedback structure is identical with RAG on/off,
+  so the judge naturally cannot distinguish them, which is the intended effect).
+- Judge = generation model (gemini-3.6-flash; see config.py): expert calibration tests self-preference,
+  so every record stores judge_model_version and consistency is checked after the run.
+- Defensive parsing: malformed JSON / missing dimensions / out-of-range scores always RAISE; never fill a default
+  (parse failure = judge failure and must remain visible).
 """
 from __future__ import annotations
 
@@ -22,7 +25,7 @@ SCORES_DIR = Path(__file__).resolve().parent.parent / "scores"
 
 _DIMENSIONS = ("accuracy", "specificity", "actionability", "coverage", "overall_usefulness")
 
-# rubric v2 在系统指令里。要求 JSON only（无散文、无 markdown 围栏），每条 rationale 一句话。
+# Rubric v2 lives in the system instruction. Require JSON only (no prose or markdown fences), with one sentence per rationale.
 _JUDGE_SYSTEM = """You are a strict, calibrated evaluator of interview-coaching feedback. You are given an interview question, a candidate's answer, and a piece of written feedback about that answer. Score ONLY the feedback, on five dimensions, each an integer from 1 to 5.
 
 1. accuracy — Is the feedback's judgement of the answer correct? Judge correctness FIRST. Feedback that praises a weak answer (e.g. calls a poor answer "solid" or "strong") scores 1 on accuracy, however positive or fluent it sounds. 3 = broadly correct with some misjudgement; 5 = its assessment of the answer is fully correct.
@@ -40,7 +43,7 @@ Output JSON only. No prose, no markdown code fence, nothing before or after the 
 
 
 def build_judge_prompt(question: str, answer: str, feedback_text: str) -> str:
-    """纯函数：只拼 题目 + 回答 + 被评反馈。绝不含 flags/知识块/指标/条件信息（裁判对条件盲）。"""
+    """Pure function: combine only question + answer + evaluated feedback. Never include flags/knowledge chunks/metrics/condition information (judge is condition-blind)."""
     return (
         f"Interview question:\n{question}\n\n"
         f"Candidate's answer (speech-to-text transcript):\n{answer}\n\n"
@@ -50,18 +53,18 @@ def build_judge_prompt(question: str, answer: str, feedback_text: str) -> str:
 
 
 def _parse_scores(raw: str) -> dict:
-    """防御式解析：去围栏/散文 → json.loads → 校验五维齐全且 score 为 1..5 的 int。任何失败都抛。"""
+    """Defensive parsing: remove fences/prose → json.loads → require all five dimensions and int scores from 1..5. Raise on every failure."""
     s = raw.strip()
     start, end = s.find("{"), s.rfind("}")
     if start == -1 or end == -1 or end < start:
         raise ValueError(f"裁判输出里找不到 JSON 对象: {raw[:120]!r}")
-    obj = json.loads(s[start:end + 1])  # 坏 JSON → JSONDecodeError(ValueError 子类)，上抛
+    obj = json.loads(s[start:end + 1])  # Malformed JSON → JSONDecodeError (a ValueError subclass); propagate it
     for dim in _DIMENSIONS:
         if dim not in obj:
             raise ValueError(f"裁判输出缺维度: {dim}")
         entry = obj[dim]
         score = entry.get("score") if isinstance(entry, dict) else None
-        # bool 是 int 子类，要排除；分数必须是 1..5 的整数
+        # bool is an int subclass and must be excluded; scores must be integers from 1..5
         if not isinstance(score, int) or isinstance(score, bool) or not (1 <= score <= 5):
             raise ValueError(f"维度 {dim} 的 score 非法（应为 1..5 整数）: {score!r}")
     return obj
@@ -71,7 +74,7 @@ _client = None
 
 
 def _get_client():
-    """懒加载 Gemini 客户端。缺 key 明确报错。import 时不建连接。"""
+    """Lazy-load the Gemini client. Report a missing key clearly. Do not connect at import time."""
     global _client
     if _client is None:
         if not config.GEMINI_API_KEY:
@@ -82,7 +85,7 @@ def _get_client():
 
 
 def _judge_generate(prompt: str) -> tuple[str, str]:
-    """调裁判模型，返回 (原始文本, judge_model_version)。空响应抛错（不能当成分数）。"""
+    """Call the judge model and return (raw text, judge_model_version). Raise on an empty response (it cannot be treated as scores)."""
     from google.genai import types
 
     client = _get_client()
@@ -98,26 +101,26 @@ def _judge_generate(prompt: str) -> tuple[str, str]:
     if not text:
         finish = resp.candidates[0].finish_reason if resp.candidates else None
         raise RuntimeError(f"裁判未返回可用文本 (finish_reason={finish})")
-    # 与 feedback.py 同款：记录实际服务版本，回退时标 (unconfirmed)（同模型 → 更要能追溯版本）
+    # Same pattern as feedback.py: record the actually served version and mark fallback as (unconfirmed) (same model → version traceability matters even more)
     served = getattr(resp, "model_version", None)
     model_version = served or f"{config.JUDGE_MODEL} (unconfirmed)"
     return text, model_version
 
 
 def judge_feedback(question: str, answer: str, feedback_text: str) -> dict:
-    """对一条反馈打分 → {"scores": <五维>, "judge_model_version": <版本>}。"""
+    """Score one feedback report → {"scores": <five dimensions>, "judge_model_version": <version>}."""
     prompt = build_judge_prompt(question, answer, feedback_text)
     raw, model_version = _judge_generate(prompt)
-    scores = _parse_scores(raw)  # 解析失败即抛，不填默认分
+    scores = _parse_scores(raw)  # Raise on parse failure; never fill default scores
     return {"scores": scores, "judge_model_version": model_version}
 
 
 def judge_record(path) -> dict | None:
-    """读一条 results 记录并打分。失败/空转录（无可评反馈）→ 返回 None（跳过）。"""
+    """Read and score one results record. Failed/empty transcript (no evaluable feedback) → return None (skip)."""
     data = json.loads(Path(path).read_text())
     fb = data.get("feedback") or {}
     if fb.get("status") != "ok" or not fb.get("text"):
-        return None  # 反馈生成失败或空转录 → 无反馈可评
+        return None  # Feedback generation failed or transcript is empty → nothing to evaluate
     result = judge_feedback(data.get("question", ""), data.get("transcript", ""), fb["text"])
     return {
         "session_id": data.get("session_id"),
@@ -128,13 +131,13 @@ def judge_record(path) -> dict | None:
 
 
 def main() -> None:
-    """批处理：遍历 results/*.json → judge_record → 写 scores/（独立层，绝不回写 results）。"""
+    """Batch process: iterate results/*.json → judge_record → write scores/ (separate layer; never write back to results)."""
     SCORES_DIR.mkdir(parents=True, exist_ok=True)
     judged = skipped = failed = 0
     for p in sorted(config.RESULTS_DIR.glob("session_*.json")):
         try:
             res = judge_record(p)
-        except Exception as e:  # 单条失败不影响整批；打印可见，绝不静默
+        except Exception as e:  # One record's failure does not stop the batch; print it visibly and never fail silently
             failed += 1
             print(f"[judge] 失败 {p.name}: {type(e).__name__}: {e}")
             continue

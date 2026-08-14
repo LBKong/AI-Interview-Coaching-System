@@ -1,33 +1,35 @@
-"""RAG 检索：从知识库检索与当前回答相关的知识片段。
+"""RAG retrieval: retrieve knowledge chunks relevant to the current answer from the knowledge base.
 
-设计：
-- 每条知识（pitfall/hint/字段）单独成块，带题目上下文（自包含）
-- 本地 sentence-transformers embedding（零成本、离线、不占 Gemini 额度）
-- FAISS 做向量检索
-- ⚠ 受 config.RAG_ENABLED 控制 —— 关掉时返回空列表（RQ2a 消融）
+Design:
+- Each knowledge item (pitfall/hint/field) is a separate, self-contained chunk with question context
+- Local sentence-transformers embeddings (zero cost, offline, no Gemini quota use)
+- FAISS vector retrieval
+- ⚠ Controlled by config.RAG_ENABLED—returns an empty list when disabled (RQ2a ablation)
 
-两处相对开发说明的偏离（均有数据支撑，见 README「RAG 检索」）：
-1. 英文镜像做索引：知识库内容是中文、被试回答是英文，小型 embedding 模型跨语言判别弱。
-   用英文镜像(questions_en/general_en)算向量，中文原文(questions/general)返回给 LLM。
-2. 查询只用「回答」：题目上下文已在每个块的 [Question:] 前缀里锚定；实测把题目也拼进
-   query 会引入泛化词干扰，把精确的 pitfall 挤出 top-k，而跨题隔离并不因此变差。
+Two deviations from the development notes (both evidence-based; see "RAG Retrieval" in README):
+1. Index an English mirror: the knowledge base is Chinese while participant answers are English,
+   and the small embedding model has weak cross-language discrimination. Compute vectors from the
+   English mirror (questions_en/general_en), but return the Chinese source (questions/general) to the LLM.
+2. Query with the answer only: question context is already anchored by each chunk's [Question:] prefix.
+   Testing showed that adding the question to the query introduces generic-term interference and pushes
+   the precise pitfall out of top-k, without improving isolation between questions.
 """
 import json
 from pathlib import Path
 
-# ⚠ 原生库导入顺序不能交换：FAISS 与 PyTorch wheel 都自带 OpenMP runtime；
-# 在 macOS 上先加载 FAISS 再初始化 PyTorch 计算会触发 native segfault。这里提前加载
-# PyTorch，确保后续 build/load 路径中的懒加载 FAISS 使用安全顺序；embedding 模型本身
-# 仍由 _get_model() 懒加载，不做启动时预热。
+# ⚠ Native-library import order must not be reversed: both FAISS and PyTorch wheels bundle an OpenMP runtime.
+# On macOS, loading FAISS before initializing PyTorch computation causes a native segfault. PyTorch is loaded
+# first here so lazy FAISS imports in subsequent build/load paths use the safe order; the embedding model itself
+# remains lazy-loaded by _get_model() and is not warmed up at startup.
 import torch  # noqa: F401
 
 from . import config
 
 KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
-# 中文原文（展示 / 给 LLM）
+# Chinese source text (displayed / sent to the LLM)
 QUESTIONS_PATH = KNOWLEDGE_DIR / "questions.json"
 GENERAL_PATH = KNOWLEDGE_DIR / "general.json"
-# 英文镜像（仅用于 embedding 检索）
+# English mirror (used only for embedding retrieval)
 QUESTIONS_EN_PATH = KNOWLEDGE_DIR / "questions_en.json"
 GENERAL_EN_PATH = KNOWLEDGE_DIR / "general_en.json"
 INDEX_PATH = KNOWLEDGE_DIR / "index.faiss"
@@ -41,7 +43,7 @@ _chunks = None
 
 
 def _get_model():
-    """懒加载 embedding 模型（首次会下载 ~80MB）。"""
+    """Lazy-load the embedding model (the first use downloads ~80 MB)."""
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
@@ -50,7 +52,7 @@ def _get_model():
 
 
 def _question_chunks(item: dict, question: str) -> list[str]:
-    """把一道题的 5 个字段拆成自包含的块（题目 + 单条知识）。"""
+    """Split a question's five fields into self-contained chunks (question + one knowledge item)."""
     out = [
         f"[Question: {question}]\n[Assesses] {item['assesses']}",
         f"[Question: {question}]\n[Good answer] {item['good_answer']}",
@@ -61,10 +63,11 @@ def _question_chunks(item: dict, question: str) -> list[str]:
 
 
 def _build_chunks() -> list[dict]:
-    """读中文库 + 英文镜像 → 每块产出 {"text": 中文(给LLM), "embed": 英文(建索引)}。
+    """Read the Chinese base + English mirror → produce {"text": Chinese (for LLM), "embed": English (for indexing)} for each chunk.
 
-    题目行两边都用英文题目（question 字段本就是英文面试题），只有知识内容中英不同。
-    结构对齐断言：中英两份题数、每题 pitfall/hint 条数必须一致，防止镜像与原库漂移。
+    Both sides use the English question text (the question field is already an English interview question);
+    only the knowledge content differs by language. Structural alignment assertions require equal question
+    counts and equal pitfall/hint counts per question to prevent the mirror drifting from the source.
     """
     qz = json.loads(QUESTIONS_PATH.read_text())
     gz = json.loads(GENERAL_PATH.read_text())
@@ -79,7 +82,7 @@ def _build_chunks() -> list[dict]:
         for field in ("common_pitfalls", "feedback_hints"):
             assert len(iz[field]) == len(ie[field]), (
                 f"题 [{iz['question']}] 的 {field} 中英条数不一致")
-        q = ie["question"]  # 英文题目行两边一致
+        q = ie["question"]  # The English question line is identical on both sides
         text_blocks = _question_chunks(iz, q)
         embed_blocks = _question_chunks(ie, q)
         for t, e in zip(text_blocks, embed_blocks):
@@ -93,8 +96,8 @@ def _build_chunks() -> list[dict]:
 
 
 def build_index() -> None:
-    """离线：切块 → 向量化(英文镜像) → 存 FAISS 索引 + chunks.json(中文原文)。
-    可手动调用以在知识库改动后重建。"""
+    """Offline: chunk → vectorize (English mirror) → store FAISS index + chunks.json (Chinese source).
+    Call manually to rebuild after the knowledge base changes."""
     import faiss
     import numpy as np
 
@@ -102,22 +105,22 @@ def build_index() -> None:
     embed_texts = [c["embed"] for c in chunks]
     display_texts = [c["text"] for c in chunks]
 
-    # 坑①：归一化，让内积等于余弦相似度（建索引与查询两边都要归一化）
+    # Pitfall 1: normalize so inner product equals cosine similarity (both indexing and querying must normalize)
     vecs = _get_model().encode(embed_texts, normalize_embeddings=True)
-    # 坑②：FAISS 只吃 float32
+    # Pitfall 2: FAISS accepts only float32
     vecs = np.asarray(vecs, dtype="float32")
 
-    index = faiss.IndexFlatIP(vecs.shape[1])  # 内积；向量已归一化 → 等价余弦相似度
+    index = faiss.IndexFlatIP(vecs.shape[1])  # Inner product; normalized vectors make it equivalent to cosine similarity
     index.add(vecs)
 
     KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
     faiss.write_index(index, str(INDEX_PATH))
-    # 坑④：中文 JSON 写入要 ensure_ascii=False，否则文件不可读
+    # Pitfall 4: write Chinese JSON with ensure_ascii=False or the file becomes unreadable
     CHUNKS_PATH.write_text(json.dumps(display_texts, ensure_ascii=False))
 
 
 def _load_index():
-    """懒加载已建好的索引；不存在则先 build。"""
+    """Lazy-load the built index; build it first if it does not exist."""
     global _index, _chunks
     if _index is None:
         import faiss
@@ -129,22 +132,23 @@ def _load_index():
 
 
 def retrieve(
-    question: str,  # ⚠ 当前不参与检索，仅为接口稳定保留（见 docstring 第一行）
+    question: str,  # ⚠ Currently excluded from retrieval and retained only for API stability (see the docstring's first line)
     answer: str,
     k: int = 3,
     *,
     enabled: bool | None = None,
 ) -> list[str]:
-    """⚠ question 参数当前【不参与检索】—— 检索只用 answer 算向量，传 question 不会
-    影响任何结果，别被签名误导（三个月后的你也是）。
+    """⚠ The question parameter currently DOES NOT PARTICIPATE IN RETRIEVAL—the vector is computed
+    from answer only, so passing question changes no result. Do not let the signature mislead you (including three months from now).
 
-    保留 question 是为接口稳定：将来知识库变大或题目相近时，可能改回「题目+回答」
-    或加重排，届时无需改调用方。query 只用 answer 的实测依据见模块 docstring 偏离②。
+    question is retained for API stability: if the knowledge base grows or questions become similar,
+    retrieval may return to "question + answer" or add reranking without changing callers. See deviation 2
+    in the module docstring for empirical evidence supporting answer-only queries.
 
-    在线：检索 top-k 相关知识块，返回中文原文（给 LLM 用）。
-    ⚠ RAG 消融开关在这里生效 —— 关掉时返回空列表（RQ2a）。
-    enabled：per-question 覆盖（within-subjects 消融要靠它，同 session 各题可不同）。
-             None → 回退全局 config.RAG_ENABLED；True/False → 显式指定本次。
+    Online: retrieve the top-k relevant knowledge chunks and return the Chinese source (for the LLM).
+    ⚠ The RAG ablation switch takes effect here—return an empty list when disabled (RQ2a).
+    enabled: per-question override (required for the within-subjects ablation, where questions in one session may differ).
+             None → fall back to global config.RAG_ENABLED; True/False → explicitly set this call.
     """
     use_rag = config.RAG_ENABLED if enabled is None else enabled
     if not use_rag:
@@ -152,12 +156,12 @@ def retrieve(
 
     import numpy as np
 
-    _ = question  # 显式表明：当前有意不使用（见上方警告）
+    _ = question  # Explicitly show that this is intentionally unused (see warning above)
     index, chunks = _load_index()
-    # 坑①：查询向量同样归一化；坑②：float32
+    # Pitfall 1: normalize the query vector too; Pitfall 2: float32
     qvec = _get_model().encode([answer], normalize_embeddings=True)
     qvec = np.asarray(qvec, dtype="float32")
 
     _scores, idxs = index.search(qvec, k)
-    # 坑③：k 大于块数时 faiss 返回 -1，必须过滤（否则 chunks[-1] 取到错块且不报错）
+    # Pitfall 3: FAISS returns -1 when k exceeds the chunk count; filter it or chunks[-1] silently returns the wrong chunk
     return [chunks[i] for i in idxs[0] if i >= 0]

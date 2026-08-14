@@ -44,7 +44,7 @@ def test_build_summary_multimodal_off_is_text_only():
     transcript, gaze = _sample_inputs()
     s = build_summary("sess1", "Q?", transcript, gaze, question_index=0, multimodal=False, rag=False)
     assert s["transcript"] == "hello world"
-    assert "gaze_on_camera_ratio" not in s   # 语速也是非语言信号，一起关
+    assert "gaze_on_camera_ratio" not in s   # Speaking rate is also nonverbal, so disable both
     assert "avg_wpm" not in s
     assert s["flags"] == {"multimodal": False, "rag": False}
 
@@ -56,12 +56,12 @@ def test_save_summary_writes_json_and_no_media(tmp_path):
     assert path.exists()
     loaded = json.loads(path.read_text())
     assert loaded["session_id"] == "sess1"
-    # 落库目录里绝不能有任何音视频文件
-    assert_no_media(tmp_path)  # 不抛异常即通过
+    # The persistence directory must never contain audio or video files
+    assert_no_media(tmp_path)  # Passes if no exception is raised
 
 
 def test_save_summary_one_file_per_question(tmp_path):
-    # Task 1：同 session、不同 question_index → 两个文件（后一题不再覆盖前一题）
+    # Task 1: same session, different question_index → two files (a later question no longer overwrites an earlier one)
     transcript, gaze = _sample_inputs()
     s0 = build_summary("sessX", "Q?", transcript, gaze, question_index=0, multimodal=True, rag=False)
     s1 = build_summary("sessX", "Q?", transcript, gaze, question_index=1, multimodal=True, rag=False)

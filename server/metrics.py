@@ -1,4 +1,4 @@
-"""统计量纯函数：WPM、凝视占比、凝视平滑。逐帧/逐词数据很抖，故做窗口平滑。"""
+"""Pure metric functions: WPM, gaze ratio, and gaze smoothing. Frame/word-level data is noisy, so window smoothing is applied."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,12 +8,12 @@ from server.asr import Word
 
 @dataclass
 class GazeSample:
-    t: float            # 秒
-    looking: bool       # 是否在看镜头（浏览器端已按 GAZE_ON_CAMERA_DEG 判定）
+    t: float            # Seconds
+    looking: bool       # Whether looking at the camera (already classified in-browser using GAZE_ON_CAMERA_DEG)
 
 
 def compute_wpm(words: list[Word]) -> float:
-    """从词级时间戳算语速（每分钟词数）。"""
+    """Calculate speaking rate (words per minute) from word-level timestamps."""
     if len(words) < 2:
         return 0.0
     duration_sec = words[-1].t_end - words[0].t_start
@@ -23,7 +23,7 @@ def compute_wpm(words: list[Word]) -> float:
 
 
 def smooth_looking(samples: list[GazeSample], window: int = 5) -> list[GazeSample]:
-    """滑动窗口多数投票，抹平单帧抖动。窗口取奇数。"""
+    """Use a sliding-window majority vote to smooth single-frame jitter. The window size must be odd."""
     if window < 2 or len(samples) < window:
         return list(samples)
     half = window // 2
@@ -38,7 +38,7 @@ def smooth_looking(samples: list[GazeSample], window: int = 5) -> list[GazeSampl
 
 
 def gaze_on_camera_ratio(samples: list[GazeSample]) -> float:
-    """看镜头时间占比。"""
+    """Proportion of time spent looking at the camera."""
     if not samples:
         return 0.0
     return sum(1 for s in samples if s.looking) / len(samples)

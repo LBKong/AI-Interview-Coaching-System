@@ -14,7 +14,7 @@ _VALID = {
 
 
 def test_judge_model_is_pinned():
-    # 裁判=生成模型是刻意取舍，故不再断言"不同"；改为断言写死、非 *-latest 别名
+    # Judge=generation model is a deliberate trade-off, so no longer assert they differ; assert a pinned non-*latest alias instead
     m = config.JUDGE_MODEL
     assert isinstance(m, str) and m
     assert "latest" not in m

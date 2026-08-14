@@ -16,7 +16,7 @@ if (!Array.isArray(plan) || !plan.length) {
   throw new Error("Selected study plan is missing or empty");
 }
 
-// https 页面必须用 wss(否则浏览器拦截混合内容, 抛异常会中断整个脚本)
+// HTTPS pages must use wss (otherwise the browser blocks mixed content, and the exception stops the entire script)
 const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
 const ws = new WebSocket(`${wsProto}//${location.host}/ws`);
 ws.onopen = () => { document.getElementById("ws-status").textContent = "Connected"; };
@@ -28,7 +28,7 @@ document.getElementById("btn-hello").onclick = () => {
   log("发送: hello");
 };
 
-// ---- Step 2: 取摄像头 + 麦克风（只取流，绝不写文件/落库）----
+// ---- Step 2: Access camera + microphone (stream only; never write files or persist data) ----
 let mediaStream = null;
 
 async function initMedia() {
@@ -39,7 +39,7 @@ async function initMedia() {
   document.getElementById("capture").hidden = false;
   document.getElementById("selfview").srcObject = mediaStream;
 
-  // 麦克风电平自检
+  // Microphone-level self-check
   const audioCtx = new AudioContext();
   const src = audioCtx.createMediaStreamSource(mediaStream);
   const analyser = audioCtx.createAnalyser();
@@ -59,12 +59,12 @@ async function initMedia() {
 document.getElementById("btn-media").onclick = () =>
   initMedia().catch((e) => log("Media permission failed: " + e));
 
-// ---- Step 3: 录音(内存) → 结束时上传转录 ----
+// ---- Step 3: Record (in memory) → upload for transcription when finished ----
 let recorder = null;
 let audioChunks = [];
 let recMime = "audio/webm";
 
-// 本轮 session 状态（Step 6）
+// State for this session (Step 6)
 let sessionId = null;
 let currentQ = 0;
 let gazeBuffer = [];
@@ -74,13 +74,13 @@ function pickMime() {
   for (const m of cands) {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
   }
-  return ""; // 让浏览器用默认
+  return ""; // Let the browser use its default
 }
 
 function startRecording() {
   if (!mediaStream) { log("Enable the camera and microphone first"); return false; }
   audioChunks = [];
-  // 只用音频轨道单独建流：避免把 视频+音频 混合流喂给纯音频容器导致录不出数据
+  // Build a separate stream from audio tracks only: feeding a video+audio stream to an audio-only container can produce no data
   const audioTracks = mediaStream.getAudioTracks();
   if (!audioTracks.length) { log("No audio track is available"); return false; }
   const audioStream = new MediaStream(audioTracks);
@@ -89,7 +89,7 @@ function startRecording() {
     ? new MediaRecorder(audioStream, { mimeType: recMime })
     : new MediaRecorder(audioStream);
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) audioChunks.push(e.data); };
-  recorder.start(1000); // 每秒切一块，避免只在 stop 才拿到数据
+  recorder.start(1000); // Emit one chunk per second instead of receiving data only at stop
   log("Recording started");
   return true;
 }
@@ -113,7 +113,7 @@ async function stopRecordingAndTranscribe() {
   await done;
   const blob = new Blob(audioChunks, { type: recorder.mimeType || "audio/webm" });
   recorder = null;
-  audioChunks = []; // 立即丢弃内存音频
+  audioChunks = []; // Immediately discard in-memory audio
   log("Recorded audio: " + blob.size + " bytes");
   if (!blob.size) {
     log("No audio was recorded");
@@ -333,11 +333,11 @@ function showQuestionnaire() {
   area.appendChild(form);
 }
 
-// 录音/转录由「开始/结束」按钮驱动（见 Step 5）
+// Recording/transcription is driven by the Start/End buttons (see Step 5)
 
-// ---- Step 4: 浏览器内 MediaPipe 算凝视代理，样本经 WS 发出（为 L2 HUD 预留链路）----
-// 阈值单一真源在 server/config.py，页面加载时从 /config 拉取，前端不硬编码。
-let GAZE_ON_CAMERA_DEG = 15.0; // 拉取前的兜底默认
+// ---- Step 4: Compute the gaze proxy in-browser with MediaPipe; send samples over WS (reserved for the L2 HUD) ----
+// The threshold's single source of truth is server/config.py; fetch it from /config at page load instead of hard-coding it in the frontend.
+let GAZE_ON_CAMERA_DEG = 15.0; // Fallback default before the fetch completes
 fetch("/config").then((r) => r.json()).then((c) => {
   if (typeof c.gaze_on_camera_deg === "number") {
     GAZE_ON_CAMERA_DEG = c.gaze_on_camera_deg;
@@ -368,16 +368,16 @@ async function initGaze() {
   log("MediaPipe 就绪");
 }
 
-// 从 4x4 变换矩阵估计头部 yaw/pitch（度），作为"看镜头"代理
+// Estimate head yaw/pitch (degrees) from the 4x4 transform matrix as a "looking at camera" proxy
 function headAnglesDeg(matrix) {
-  const m = matrix; // column-major 长度16
+  const m = matrix; // column-major, length 16
   const yaw = Math.atan2(m[8], m[10]) * 180 / Math.PI;
   const pitch = Math.atan2(-m[9], Math.sqrt(m[8] ** 2 + m[10] ** 2)) * 180 / Math.PI;
   return { yaw, pitch };
 }
 
 function startGazeLoop() {
-  if (gazeTimer) clearInterval(gazeTimer); // 防重入，避免重复 interval
+  if (gazeTimer) clearInterval(gazeTimer); // Prevent re-entry and duplicate intervals
   const video = document.getElementById("selfview");
   sessionT0 = performance.now();
   gazeTimer = setInterval(() => {
@@ -395,8 +395,8 @@ function startGazeLoop() {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "gaze", t, looking }));
     }
-    gazeBuffer.push({ t, looking }); // 本地缓存，结束时随音频一起上传
-  }, 100); // 10 fps 足够
+    gazeBuffer.push({ t, looking }); // Cache locally and upload with the audio at the end
+  }, 100); // 10 fps is sufficient
 }
 
 function stopGazeLoop() {
@@ -410,7 +410,7 @@ document.getElementById("btn-gaze").onclick = () =>
     document.getElementById("btn-gaze").disabled = true;
   }).catch((e) => log("MediaPipe failed: " + e));
 
-// ---- Step 4 校准：采集两种情况的 yaw/pitch 分布，为阈值提供依据(论文方法章节用)----
+// ---- Step 4 calibration: collect yaw/pitch distributions in two conditions to justify the threshold (for the thesis methods section) ----
 function pct(arr, p) {
   if (!arr.length) return NaN;
   const s = [...arr].sort((a, b) => a - b);
@@ -443,9 +443,9 @@ function collectCalibration(label, seconds = 5) {
 document.getElementById("btn-calib-look").onclick = () => collectCalibration("看镜头");
 document.getElementById("btn-calib-away").onclick = () => collectCalibration("看别处");
 
-// ---- L1 Step 3: 问题循环。每题仍保持 TTS 念完再录音，避免题目声音污染答案。----
+// ---- L1 Step 3: Question loop. For every question, start recording only after TTS finishes so the prompt audio does not contaminate the answer. ----
 function beginAnswer() {
-  if (recorder && recorder.state === "recording") return; // 防重入
+  if (recorder && recorder.state === "recording") return; // Prevent re-entry
   if (!startRecording()) return;
   if (faceLandmarker) startGazeLoop();
   document.getElementById("btn-end").hidden = false;
@@ -460,12 +460,12 @@ function askAndListen(text) {
     let started = false;
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "en-US";
-    u.onstart = () => { started = true; };  // TTS 真的在念
-    u.onend = beginAnswer;                   // 念完再录音(不论题目多长都准确)
+    u.onstart = () => { started = true; };  // TTS has actually started speaking
+    u.onend = beginAnswer;                   // Record after speech ends (accurate regardless of question length)
     u.onerror = beginAnswer;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
-    // 兜底：仅当 TTS 根本没开始念(静默失败)时才直接开始，不会打断正常念题
+    // Fallback: start directly only if TTS never began (silent failure), without interrupting normal speech
     setTimeout(() => { if (!started) beginAnswer(); }, 1000);
   } catch (e) {
     log("TTS unavailable; starting answer directly: " + e);
@@ -473,7 +473,7 @@ function askAndListen(text) {
   }
 }
 
-// 收到题目时朗读并显示，念完再开始录音
+// Read and display a received question, then start recording after it has been spoken
 const origOnMessage = ws.onmessage;
 ws.onmessage = (e) => {
   origOnMessage(e);
