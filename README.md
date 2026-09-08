@@ -179,7 +179,7 @@ The `results/` directory contains participant research data, remains local to th
 ## Repository Structure
 
 ```text
-L0-foundation/
+AI-Interview-Coaching-System/
 ├── frontend/
 │   ├── app.js                  # Participant flow, recording, gaze and questionnaire
 │   ├── index.html              # Participant interface
