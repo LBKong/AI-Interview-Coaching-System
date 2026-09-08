@@ -6,7 +6,6 @@ Design:
 - Domain knowledge belongs in the knowledge base; feedback style belongs in the prompt (see design decision 3)
 - Gemini uses the current google-genai SDK; the client is lazy-loaded
 - Single responsibility: generate text only; do not persist data or modify summary
-Companion design document: REPORT_STRUCTURE.md
 """
 from __future__ import annotations
 
